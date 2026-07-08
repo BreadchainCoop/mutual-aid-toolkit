@@ -1,0 +1,41 @@
+{
+  "name": "mutual-aid-toolkit",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A self-owned toolkit for running mutual aid. Local-first, works offline, open source.",
+  "type": "module",
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "build": "vite build",
+    "dev": "vite",
+    "cli": "node --experimental-strip-types src/cli.ts",
+    "build:single": "vite build --config vite.singlefile.config.ts"
+  },
+  "dependencies": {
+    "@automerge/automerge-repo": "2.6.0-subduction.40",
+    "@automerge/automerge-repo-network-messagechannel": "2.6.0-subduction.40",
+    "@automerge/automerge-repo-storage-indexeddb": "2.6.0-subduction.40",
+    "@automerge/automerge-repo-storage-nodefs": "2.6.0-subduction.40",
+    "@automerge/automerge-subduction": "0.16.0",
+    "qrcode": "^1.5.4"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.0",
+    "@types/qrcode": "^1.5.6",
+    "playwright-core": "^1.61.1",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.7",
+    "vite-plugin-singlefile": "^2.3.3",
+    "vite-plugin-wasm": "^3.4.1",
+    "vitest": "^3.0.0"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/BreadchainCoop/mutual-aid-toolkit"
+  }
+}

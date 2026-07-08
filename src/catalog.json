@@ -1,0 +1,475 @@
+{
+  "goods": [
+    {
+      "key": "groceries",
+      "label": "Alimentos / Groceries / 食品",
+      "category": "food",
+      "expiryDays": 14
+    },
+    {
+      "key": "hot_meals",
+      "label": "Comida caliente / Hot meals / 热食",
+      "category": "food",
+      "expiryDays": 14
+    },
+    {
+      "key": "baby_diapers",
+      "label": "Pañales / Baby Diapers / 嬰兒紙尿褲",
+      "category": "toiletries",
+      "expiryDays": 14
+    },
+    {
+      "key": "adult_diapers",
+      "label": "Pañales de adultos / Adult Diapers / 成人紙尿褲",
+      "category": "toiletries",
+      "expiryDays": 14
+    },
+    {
+      "key": "soap",
+      "label": "Jabón & Productos de baño / Soap & Shower Products / 肥皂和淋浴用品",
+      "category": "toiletries",
+      "expiryDays": 14
+    },
+    {
+      "key": "pads",
+      "label": "Productos Femenino - Toallitas / Feminine Products - Pads / 衛生巾",
+      "category": "toiletries",
+      "expiryDays": 14
+    },
+    {
+      "key": "school_supplies",
+      "label": "Cosas de Escuela / School Supplies / 學校用品",
+      "category": "household",
+      "expiryDays": 14
+    },
+    {
+      "key": "clothing",
+      "label": "Ropa / Clothing / 服裝",
+      "category": "household",
+      "expiryDays": 14
+    },
+    {
+      "key": "stroller",
+      "label": "Coche / Stroller / 嬰兒車",
+      "category": "household",
+      "expiryDays": 14
+    },
+    {
+      "key": "sofa",
+      "label": "Sofa / Sofa / 沙發",
+      "category": "furniture",
+      "expiryDays": 14
+    },
+    {
+      "key": "clothes_dresser",
+      "label": "Cajonera / Clothes Dresser / 衣櫃",
+      "category": "furniture",
+      "expiryDays": 14
+    },
+    {
+      "key": "desk",
+      "label": "Escritorio / Desk /  書桌",
+      "category": "furniture",
+      "expiryDays": 14
+    },
+    {
+      "key": "coffee_table",
+      "label": "Mesa de centro / Coffee Table / 咖啡桌",
+      "category": "furniture",
+      "expiryDays": 14
+    },
+    {
+      "key": "chairs",
+      "label": "Sillas / Chairs / 椅子",
+      "category": "furniture",
+      "expiryDays": 14
+    },
+    {
+      "key": "storage",
+      "label": "Almacenamiento / Storage / 儲物櫃",
+      "category": "furniture",
+      "expiryDays": 14
+    },
+    {
+      "key": "dining_table",
+      "label": "Mesa Para Comedor / Dining Room Table / 餐桌",
+      "category": "furniture",
+      "expiryDays": 14
+    },
+    {
+      "key": "refrigerator",
+      "label": "Nevera / Refrigerator / 冰箱",
+      "category": "furniture",
+      "expiryDays": 14
+    },
+    {
+      "key": "air_conditioner",
+      "label": "Aire conditionador / Air Conditioner / 空調",
+      "category": "furniture",
+      "expiryDays": 14
+    },
+    {
+      "key": "other_furniture",
+      "label": "Otras Muebles / Other Furniture / 其他家具",
+      "category": "furniture",
+      "expiryDays": 14
+    },
+    {
+      "key": "crib",
+      "label": "Cuna / Crib / 嬰兒床",
+      "category": "furniture",
+      "expiryDays": 14
+    },
+    {
+      "key": "twin_mattress",
+      "label": "Colchón individual / Twin Mattress / 單人床墊",
+      "category": "furniture",
+      "expiryDays": 14
+    },
+    {
+      "key": "full_mattress",
+      "label": "Colchón matrimonio / Full Mattress / 雙人床墊",
+      "category": "furniture",
+      "expiryDays": 14
+    },
+    {
+      "key": "queen_mattress",
+      "label": "Colchón tamaño Queen / Queen Mattress / 雙人加大床墊",
+      "category": "furniture",
+      "expiryDays": 14
+    },
+    {
+      "key": "king_mattress",
+      "label": "Colchón tamaño King / King Mattress / 雙人特大床墊",
+      "category": "furniture",
+      "expiryDays": 14
+    },
+    {
+      "key": "twin_mattress_frame",
+      "label": "Cama individual / Twin Mattress + Frame / 單人床墊+床架",
+      "category": "furniture",
+      "expiryDays": 14
+    },
+    {
+      "key": "full_mattress_frame",
+      "label": "Cama matrimonio / Full Mattress + Frame / 雙人床墊+床架",
+      "category": "furniture",
+      "expiryDays": 14
+    },
+    {
+      "key": "queen_mattress_frame",
+      "label": "Cama tamaño Queen / Queen Mattress + Frame / 雙人加大床墊+床架",
+      "category": "furniture",
+      "expiryDays": 14
+    },
+    {
+      "key": "king_mattress_frame",
+      "label": "Cama tamaño King / King Mattress + Frame / 雙人特大床墊+床架",
+      "category": "furniture",
+      "expiryDays": 14
+    },
+    {
+      "key": "twin_bed_frame",
+      "label": "Bastidor individual / Twin Bed Frame / 單人床架",
+      "category": "furniture",
+      "expiryDays": 14
+    },
+    {
+      "key": "full_bed_frame",
+      "label": "Bastidor matrimonio / Full Bed Frame / 雙人床架",
+      "category": "furniture",
+      "expiryDays": 14
+    },
+    {
+      "key": "queen_bed_frame",
+      "label": "Bastidor tamaño Queen / Queen Bed Frame / 雙人加大床架",
+      "category": "furniture",
+      "expiryDays": 14
+    },
+    {
+      "key": "king_bed_frame",
+      "label": "Bastidor tamaño King / King Bed Frame / 雙人特大床架",
+      "category": "furniture",
+      "expiryDays": 14
+    },
+    {
+      "key": "loft_bunk_bed",
+      "label": "Litera / Loft or Bunk Bed / 閣樓床或上下床",
+      "category": "furniture",
+      "expiryDays": 14
+    },
+    {
+      "key": "microwave",
+      "label": "Microondas / Microwave / 微波爐",
+      "category": "kitchen",
+      "expiryDays": 14
+    },
+    {
+      "key": "pots_pans",
+      "label": "Ollas y Sartenes / Pots & Pans / 鍋碗瓢盆",
+      "category": "kitchen",
+      "expiryDays": 30
+    },
+    {
+      "key": "plates",
+      "label": "Platos / Plates / 盤子",
+      "category": "kitchen",
+      "expiryDays": 14
+    },
+    {
+      "key": "cups",
+      "label": "Tazas / Cups / 杯子",
+      "category": "kitchen",
+      "expiryDays": 14
+    },
+    {
+      "key": "utensils",
+      "label": "Utensilios / Utensils / 餐具",
+      "category": "kitchen",
+      "expiryDays": 14
+    },
+    {
+      "key": "coffee_maker",
+      "label": "Cafetera / Coffee Maker / 咖啡機",
+      "category": "kitchen",
+      "expiryDays": 14
+    },
+    {
+      "key": "blender",
+      "label": "Licuadora / Blender / 攪拌機",
+      "category": "kitchen",
+      "expiryDays": 14
+    },
+    {
+      "key": "other_kitchen",
+      "label": "Otras Cosas de Cocina / Other Kitchen Items / 其他廚房用品",
+      "category": "kitchen",
+      "expiryDays": 14
+    }
+  ],
+  "socialServices": [
+    {
+      "key": "tenant_legal",
+      "label": "Asistencia legal de inquilinos / Tenant legal assistance / 租戶法律協助",
+      "category": "social_service",
+      "expiryDays": 14
+    },
+    {
+      "key": "in_school_services",
+      "label": "Asistencia con servicios escolares / Assistance with in-school services / 學校服務協助",
+      "category": "social_service",
+      "expiryDays": 14
+    },
+    {
+      "key": "tutoring",
+      "label": "Tutoría estudiantil / Tutoring for students / 學生輔導",
+      "category": "social_service",
+      "expiryDays": 14
+    },
+    {
+      "key": "english_classes",
+      "label": "Clases de inglés / English Classes / 英語課",
+      "category": "social_service",
+      "expiryDays": 14
+    },
+    {
+      "key": "housing",
+      "label": "Asistencia asegurando vivienda / Securing housing / 住房協助",
+      "category": "social_service",
+      "expiryDays": 14
+    },
+    {
+      "key": "health_insurance",
+      "label": "Asistencia con seguro médico / Medical insurance support / 醫療保險協助",
+      "category": "social_service",
+      "expiryDays": 14
+    },
+    {
+      "key": "business_support",
+      "label": "Asistencia de Negocios / Small Business Support / 小型企業協助",
+      "category": "social_service",
+      "expiryDays": 14
+    },
+    {
+      "key": "food_benefits",
+      "label": "Asistencia con beneficios de comida / Assistance with food benefits / 食品福利協助（WIC, SNAP, P-EBT）",
+      "category": "social_service",
+      "expiryDays": 14
+    },
+    {
+      "key": "transportation",
+      "label": "Asistencia con Transporte / Transportation Assistance / 交通運輸協助",
+      "category": "social_service",
+      "expiryDays": 14
+    },
+    {
+      "key": "child_disability",
+      "label": "Asistencia para niños con discapacidad / Assistance for disabled children / 殘疾兒童協助",
+      "category": "social_service",
+      "expiryDays": 14
+    },
+    {
+      "key": "pet_assistance",
+      "label": "Asistencia para mascotas / Pet Assistance / 寵物協助",
+      "category": "social_service",
+      "expiryDays": 14
+    },
+    {
+      "key": "internet",
+      "label": "Low-Cost Home Internet",
+      "category": "social_service",
+      "expiryDays": 14
+    },
+    {
+      "key": "mesh_internet",
+      "label": "Mesh Internet Install",
+      "category": "social_service",
+      "expiryDays": 14
+    }
+  ],
+  "specCompat": [
+    {
+      "key": "masks_covid_tests",
+      "label": "Mascarillas y pruebas de COVID / Masks & COVID Tests / 口罩和新冠检测",
+      "category": "household",
+      "expiryDays": 14
+    },
+    {
+      "key": "pet_food",
+      "label": "Comida para mascotas / Pet Food / 宠物食品",
+      "category": "household",
+      "expiryDays": 14
+    },
+    {
+      "key": "kitchen_supplies",
+      "label": "Artículos de cocina / Kitchen Supplies / 厨房用品",
+      "category": "kitchen",
+      "expiryDays": 14
+    },
+    {
+      "key": "plates_cups_utensils",
+      "label": "Platos, vasos y cubiertos / Plates, Cups & Utensils",
+      "category": "kitchen",
+      "expiryDays": 14
+    },
+    {
+      "key": "furniture",
+      "label": "Muebles / Furniture / 家具",
+      "category": "furniture",
+      "expiryDays": 14
+    },
+    {
+      "key": "bed",
+      "label": "Cama / Bed / 床",
+      "category": "furniture",
+      "expiryDays": 14
+    },
+    {
+      "key": "diapers_size_1",
+      "label": "Pañales talla 1 / Baby Diapers Size 1 / 婴儿尿布1号",
+      "category": "toiletries",
+      "expiryDays": 14
+    },
+    {
+      "key": "diapers_size_2",
+      "label": "Pañales talla 2 / Baby Diapers Size 2 / 婴儿尿布2号",
+      "category": "toiletries",
+      "expiryDays": 14
+    },
+    {
+      "key": "diapers_size_3",
+      "label": "Pañales talla 3 / Baby Diapers Size 3 / 婴儿尿布3号",
+      "category": "toiletries",
+      "expiryDays": 14
+    },
+    {
+      "key": "diapers_size_4",
+      "label": "Pañales talla 4 / Baby Diapers Size 4 / 婴儿尿布4号",
+      "category": "toiletries",
+      "expiryDays": 14
+    },
+    {
+      "key": "diapers_size_5",
+      "label": "Pañales talla 5 / Baby Diapers Size 5 / 婴儿尿布5号",
+      "category": "toiletries",
+      "expiryDays": 14
+    },
+    {
+      "key": "diapers_size_6",
+      "label": "Pañales talla 6 / Baby Diapers Size 6 / 婴儿尿布6号",
+      "category": "toiletries",
+      "expiryDays": 14
+    }
+  ],
+  "languages": [
+    "Inglés / English / 英文",
+    "Español / Spanish / 西班牙语",
+    "Chino Mandarín / Mandarin / 普通话",
+    "Chino Cantonés / Cantonese / 广东话",
+    "Chino Toishanés / Toishanese / 台山话",
+    "Quechua el dialecto / Quechua Dialect / 克丘亞語",
+    "Portugués / Portuguese / 葡萄牙語",
+    "Criollo Haitiano / Haitian Creole / 法屬歸融語",
+    "Tagalo/ Tagalog/ 他加禄语",
+    "Árabe / Arabic / 阿拉伯語",
+    "Francés / French / 法語",
+    "Otro / Other / 其他語言"
+  ],
+  "itemAliases": {
+    "dresser": "clothes_dresser",
+    "fridge": "refrigerator",
+    "ac": "air_conditioner",
+    "dining table": "dining_table",
+    "internet": "internet",
+    "diapers": "baby_diapers",
+    "pads/tampons/panty liners": "pads",
+    "pads, tampons & panty liners": "pads"
+  },
+  "legacyAliases": {
+    "housing": "housing",
+    "vivienda": "housing",
+    "住房": "housing",
+    "health insurance": "health_insurance",
+    "seguro médico": "health_insurance",
+    "医疗保险": "health_insurance",
+    "transportation": "transportation",
+    "transporte": "transportation",
+    "交通": "transportation",
+    "tenant legal support": "tenant_legal",
+    "ayuda legal para inquilinos": "tenant_legal",
+    "租户法律援助": "tenant_legal",
+    "in-school services": "in_school_services",
+    "servicios escolares": "in_school_services",
+    "校内服务": "in_school_services",
+    "tutoring": "tutoring",
+    "tutoría": "tutoring",
+    "辅导": "tutoring",
+    "business support": "business_support",
+    "apoyo para negocios": "business_support",
+    "商业支持": "business_support",
+    "food benefits": "food_benefits",
+    "beneficios de alimentos": "food_benefits",
+    "食品补助": "food_benefits",
+    "child disability support": "child_disability",
+    "discapacidad infantil": "child_disability",
+    "儿童残障支持": "child_disability",
+    "互联网": "internet",
+    "comida": "groceries",
+    "食品杂货": "groceries",
+    "toallas sanitarias, tampones y protectores": "pads",
+    "卫生巾、卫生棉条和护垫": "pads",
+    "卫生巾": "pads",
+    "útiles escolares": "school_supplies",
+    "学习用品": "school_supplies",
+    "衣服": "clothing",
+    "coche de bebé": "stroller",
+    "婴儿车": "stroller",
+    "成人尿布": "adult_diapers",
+    "微波炉": "microwave",
+    "咖啡机": "coffee_maker",
+    "搅拌机": "blender",
+    "锅碗瓢盆": "pots_pans",
+    "热餐": "hot_meals",
+    "hot meals": "hot_meals"
+  }
+}
