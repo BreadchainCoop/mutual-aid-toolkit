@@ -159,14 +159,118 @@ body {
 }
 
 /* First-run / invite / loading screens overlay the (still-empty) console
-   below the app bar; main.ts removes #boot-root once the console boots. */
+   below the app bar; main.ts removes #boot-root once the console boots.
+   z-index sits above the nav rail (20) so the empty desktop rail + its
+   border-right don't show as a stray vertical line behind the overlay. */
 #boot-root {
   position: fixed;
   inset: var(--bar-h) 0 0 0;
   overflow-y: auto;
   background: var(--bg);
-  z-index: 5;
+  z-index: 30;
   padding: 0 var(--s4);
+}
+
+/* Onboarding (first-run / invite) layout ---------------------------------- */
+
+.boot-onboard {
+  max-width: 540px;
+  margin: 0 auto;
+  padding: var(--s6) 0 var(--s6);
+}
+
+.boot-hero {
+  margin: 0 0 var(--s5);
+}
+
+.boot-hero__title {
+  font-family: var(--font-display);
+  font-weight: 900;
+  letter-spacing: -0.02em;
+  line-height: 1.02;
+  font-size: clamp(30px, 7vw, 44px);
+  margin: 0 0 var(--s3);
+}
+
+.boot-hero__title em {
+  font-style: italic;
+  color: var(--accent);
+}
+
+.boot-hero__sub {
+  font-size: 16px;
+  margin: 0;
+  max-width: 46ch;
+}
+
+.boot-onboard .card + .card {
+  margin-top: var(--s4);
+}
+
+.card__lede {
+  margin: calc(-1 * var(--s2)) 0 var(--s2);
+  font-size: 14px;
+}
+
+/* Brand-colour swatch: keep the colour input a small square chip instead of a
+   full-width bar; it sits beside the logo select in a .row. */
+.input[type="color"] {
+  width: 52px;
+  min-width: 52px;
+  min-height: 48px;
+  padding: 4px;
+  flex: none;
+  cursor: pointer;
+}
+
+.input[type="color"]::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+
+.input[type="color"]::-webkit-color-swatch,
+.input[type="color"]::-moz-color-swatch {
+  border: none;
+  border-radius: 4px;
+}
+
+/* Colour swatch + logo select on one line: swatch fixed, select fills the
+   rest. (A plain .row wraps here because .input forces width:100%.) */
+.brand-row {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  flex-wrap: nowrap;
+}
+
+.brand-row select.input {
+  flex: 1 1 auto;
+  width: auto;
+  min-width: 0;
+}
+
+/* Device-key note at the foot of onboarding: quiet paper card, the key on its
+   own mono line with a copy control. */
+.keynote {
+  margin-top: var(--s5);
+  padding: var(--s4);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.keynote__row {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  margin-top: var(--s2);
+}
+
+.keynote__key {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 12px;
+  word-break: break-all;
+  color: var(--text);
 }
 
 #app-main {

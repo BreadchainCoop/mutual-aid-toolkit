@@ -87,20 +87,32 @@ function el<K extends keyof HTMLElementTagNameMap>(
 function firstRunScreen(root: HTMLElement, peerId: string): Promise<AppConfig> {
   return new Promise((resolve) => {
     root.innerHTML = "";
-    const wrap = el("div", { class: "card stack", style: "max-width:560px;margin:40px auto;" });
-    wrap.append(el("h2", { class: "card__title" }, "Your tools. Your data. Your rules."));
-    const intro = el("div", { class: "list-item__meta" });
-    intro.textContent =
-      "This runs on your device — no company in the middle, works offline, and " +
-      "your community's data stays with you. Start your own below, or join one you were invited to.";
-    wrap.append(intro);
-    const idNote = el("div", { class: "list-item__meta", style: "margin-top:8px" });
-    idNote.textContent = "This device's key (share it with an admin to be added):";
-    const idBox = el("div", { class: "mono", style: "word-break:break-all;font-size:13px" }, peerId);
-    wrap.append(idNote, idBox);
+    const wrap = el("div", { class: "boot-onboard" });
 
-    const orgName = el("input", { class: "input", placeholder: "Community name (e.g. Anytown Mutual Aid)" });
-    const shortName = el("input", { class: "input", placeholder: "Short name / initials (e.g. AMA)" });
+    // Hero: the Bread voice up top, then two clear paths (create / join).
+    const hero = el("div", { class: "boot-hero" });
+    const title = el("h2", { class: "boot-hero__title" });
+    title.innerHTML = "Your tools. Your data. <em>Your rules.</em>";
+    const sub = el(
+      "p",
+      { class: "boot-hero__sub muted" },
+      "This runs on your device — no company in the middle, works offline, and " +
+        "your community's data stays with you. Start your own, or join one you were invited to."
+    );
+    hero.append(title, sub);
+
+    // Labelled field helper: wires <label for> to the control for a11y.
+    let idc = 0;
+    const field = (labelText: string, input: HTMLElement, hint?: string): HTMLElement => {
+      const f = el("div", { class: "field" });
+      if (!input.id) input.id = `boot-f${++idc}`;
+      f.append(el("label", { class: "label", for: input.id }, labelText), input);
+      if (hint) f.append(el("div", { class: "list-item__meta" }, hint));
+      return f;
+    };
+
+    const orgName = el("input", { class: "input", placeholder: "e.g. Anytown Mutual Aid" });
+    const shortName = el("input", { class: "input", placeholder: "e.g. AMA" });
     const brandColor = el("input", { class: "input", type: "color", value: "#ea5817" }) as HTMLInputElement;
     const logoSelect = el("select", { class: "input" }) as HTMLSelectElement;
     for (const [val, label] of [["loaf", "Bread mark"], ["initials", "Initials chip"], ["none", "No logo"]]) {
@@ -109,17 +121,14 @@ function firstRunScreen(root: HTMLElement, peerId: string): Promise<AppConfig> {
       opt.textContent = label;
       logoSelect.append(opt);
     }
-    const deviceName = el("input", { class: "input", placeholder: "Your device name (e.g. Rosa — laptop)" });
-    const createEndpoint = el("input", {
-      class: "input",
-      placeholder: "wss://relay… (optional — needed to sync/invite other devices)",
-    });
+    const deviceName = el("input", { class: "input", placeholder: "e.g. Rosa — laptop" });
+    const createEndpoint = el("input", { class: "input", placeholder: "wss://relay…" });
     const createBtn = el("button", { class: "btn btn-primary btn-block" }, "Create a new org on this device");
 
-    const rosterUrl = el("input", { class: "input", placeholder: "automerge:… roster URL" });
-    const endpoint = el("input", { class: "input", placeholder: "wss://relay… (Subduction endpoint)" });
-    const relayPeer = el("input", { class: "input", placeholder: "relay peer id (64 hex) — leave empty to trust & pin on first connect" });
-    const joinBtn = el("button", { class: "btn btn-block" }, "Join an existing org");
+    const rosterUrl = el("input", { class: "input", placeholder: "automerge:…" });
+    const endpoint = el("input", { class: "input", placeholder: "wss://relay…" });
+    const relayPeer = el("input", { class: "input", placeholder: "64-hex relay key — optional" });
+    const joinBtn = el("button", { class: "btn btn-secondary btn-block" }, "Join an existing org");
 
     createBtn.onclick = () => {
       const name = orgName.value.trim() || "My Mutual Aid";
@@ -143,7 +152,7 @@ function firstRunScreen(root: HTMLElement, peerId: string): Promise<AppConfig> {
     };
     joinBtn.onclick = () => {
       if (!rosterUrl.value.trim().startsWith("automerge:")) {
-        alertText("A roster URL starting with automerge: is required to join.");
+        alertText("A roster link starting with automerge: is required to join.");
         return;
       }
       resolve({
@@ -159,28 +168,62 @@ function firstRunScreen(root: HTMLElement, peerId: string): Promise<AppConfig> {
       alertBox.textContent = msg;
     }
 
-    const brandRow = el("div", { class: "row" });
-    brandRow.append(
-      el("label", { class: "list-item__meta" }, "Brand color"),
-      brandColor,
-      el("label", { class: "list-item__meta" }, "Logo"),
-      logoSelect
+    // Brand colour swatch + logo select share one row under a single label.
+    const brandRow = el("div", { class: "brand-row" });
+    brandRow.append(brandColor, logoSelect);
+    if (!brandColor.id) brandColor.id = `boot-f${++idc}`;
+    const brandField = el("div", { class: "field" });
+    brandField.append(el("label", { class: "label", for: brandColor.id }, "Brand color & logo"), brandRow);
+
+    const createCard = el("div", { class: "card stack" });
+    createCard.append(
+      el("h3", { class: "card__title" }, "Start your community"),
+      el("p", { class: "muted card__lede" }, "Spin up a new org on this device — you'll be its founding admin."),
+      field("Community name", orgName),
+      field("Short name / initials", shortName),
+      brandField,
+      field("Your device name", deviceName),
+      field("Sync relay", createEndpoint, "Optional — only needed to sync with or invite other devices."),
+      createBtn
     );
-    wrap.append(
-      el("h3", { class: "card__title", style: "font-size:14px;margin-top:12px" }, "Create your org"),
-      orgName,
-      shortName,
-      brandRow,
-      deviceName,
-      createEndpoint,
-      createBtn,
-      el("h3", { class: "card__title", style: "font-size:14px;margin-top:12px" }, "Join"),
-      rosterUrl,
-      endpoint,
-      relayPeer,
+
+    const joinCard = el("div", { class: "card stack" });
+    joinCard.append(
+      el("h3", { class: "card__title" }, "Join an existing one"),
+      el("p", { class: "muted card__lede" }, "Have a roster link from an admin? Enter it to add this device."),
+      field("Roster link", rosterUrl),
+      field("Sync relay", endpoint),
+      field("Relay key", relayPeer, "Leave blank to trust the relay on first connect."),
       joinBtn,
       alertBox
     );
+
+    // Device key: quiet footer note, the key on its own line with a copy button.
+    const keynote = el("div", { class: "keynote" });
+    keynote.append(
+      el("div", { class: "label" }, "This device's key"),
+      el(
+        "p",
+        { class: "muted", style: "margin:2px 0 0;font-size:13px" },
+        "Share this with an admin so they can add your device to their org."
+      )
+    );
+    const keyRow = el("div", { class: "keynote__row" });
+    const keyCode = el("code", { class: "mono keynote__key" }, peerId);
+    const copyBtn = el("button", { class: "btn btn-ghost", type: "button" }, "Copy") as HTMLButtonElement;
+    copyBtn.onclick = () => {
+      navigator.clipboard?.writeText(peerId).then(
+        () => {
+          copyBtn.textContent = "Copied";
+          window.setTimeout(() => (copyBtn.textContent = "Copy"), 1500);
+        },
+        () => {}
+      );
+    };
+    keyRow.append(keyCode, copyBtn);
+    keynote.append(keyRow);
+
+    wrap.append(hero, createCard, joinCard, keynote);
     root.append(wrap);
   });
 }
