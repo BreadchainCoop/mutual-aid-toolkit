@@ -30,7 +30,7 @@ export interface SignerLike {
   peerId(): { toString(): string };
 }
 
-export const DEFAULT_SYNC_ENDPOINT = "wss://sync.subduction.inkandswitch.com";
+export const DEFAULT_SYNC_ENDPOINT = "wss://subduction.sync.inkandswitch.com";
 
 export interface OpenStoreOptions {
   signer: SignerLike;

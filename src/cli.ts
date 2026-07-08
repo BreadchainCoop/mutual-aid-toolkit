@@ -23,7 +23,7 @@
  * Relay trust: pass --relay-peer <hex> when you know the relay's key, or
  * --trust-relay to learn it on the first connect and pin it in state.json
  * (needed for relays whose key isn't published, e.g. the Ink & Switch
- * experiment relay at wss://sync.subduction.inkandswitch.com — the default
+ * experiment relay at wss://subduction.sync.inkandswitch.com — the default
  * endpoint; not yet publicly resolvable as of 2026-07-06).
  *
  * `jobs` and `outbox drain` connect using the endpoint/relay saved by

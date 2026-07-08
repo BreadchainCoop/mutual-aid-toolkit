@@ -103,7 +103,7 @@ function firstRunScreen(root: HTMLElement, peerId: string): Promise<AppConfig> {
     const shortName = el("input", { class: "input", placeholder: "Short name / initials (e.g. AMA)" });
     const brandColor = el("input", { class: "input", type: "color", value: "#ea5817" }) as HTMLInputElement;
     const logoSelect = el("select", { class: "input" }) as HTMLSelectElement;
-    for (const [val, label] of [["loaf", "Loaf mark"], ["initials", "Initials chip"], ["none", "No logo"]]) {
+    for (const [val, label] of [["loaf", "Bread mark"], ["initials", "Initials chip"], ["none", "No logo"]]) {
       const opt = document.createElement("option");
       opt.value = val;
       opt.textContent = label;

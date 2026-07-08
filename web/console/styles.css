@@ -33,8 +33,22 @@
   --s5: 24px;
   --s6: 40px;
 
-  --radius: 12px;
-  --radius-sm: 8px;
+  /* Bread runs crisp, not soft: small radii and hairline near-black borders. */
+  --radius: 10px;
+  --radius-sm: 7px;
+  --radius-pill: 999px;
+
+  /* surface-ink: the near-black used for crisp borders on interactive things
+     (buttons, chips) — the Bread "editorial" outline. Tracks --text so it
+     inverts to paper in dark mode. */
+  --ink: var(--text);
+
+  /* The signature Bread "lifted" shadow: a hard #595959 (surface-grey-2)
+     offset that a button presses down onto (collapses on :active). This — not
+     the palette — is what makes a control read as Bread. */
+  --lift-shadow: #595959;
+  --lift: 4px 4px 0 0 var(--lift-shadow);
+  --lift-sm: 2px 2px 0 0 var(--lift-shadow);
 
   --nav-h: 64px;          /* bottom nav height (mobile) */
   --bar-h: 56px;          /* top app bar height */
@@ -50,16 +64,19 @@
     BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 }
 
-/* Headings + the app-bar wordmark use the Pogaca display cut. */
+/* Headings + the app-bar wordmark use the Pogaca display cut at its black
+   weight with tight tracking — the Bread type voice, not just "a display
+   font". (.section-title stays a small all-caps body label; see below.) */
 h1,
 h2,
 h3,
 .app-bar__title,
 .card__title,
-.view-heading h1,
-.section-title {
+.view-heading h1 {
   font-family: var(--font-display);
-  letter-spacing: -0.01em;
+  font-weight: 900;
+  letter-spacing: -0.02em;
+  line-height: 1.06;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -125,10 +142,10 @@ body {
   justify-content: center;
   width: 34px;
   height: 34px;
-  padding: 6px 5px;
-  background: #ffffff;
-  border-radius: 9px;
-  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.06);
+  padding: 4px;
+  background: var(--surface);
+  border-radius: 8px;
+  box-shadow: var(--lift-sm);
   flex: none;
 }
 
@@ -139,9 +156,9 @@ body {
 }
 
 .app-bar__title {
-  font-size: 17px;
-  font-weight: 700;
-  letter-spacing: 0.2px;
+  font-size: 18px;
+  font-weight: 900;
+  letter-spacing: -0.01em;
   margin: 0;
 }
 
@@ -179,7 +196,7 @@ body {
 }
 
 .view-heading h1 {
-  font-size: 20px;
+  font-size: 26px;
   margin: 0 0 var(--s1);
 }
 
@@ -280,19 +297,22 @@ body {
 
 .card {
   background: var(--surface);
-  border: 1px solid var(--border);
+  border: 1.5px solid var(--ink);
   border-radius: var(--radius);
   padding: var(--s4);
-  box-shadow: var(--shadow);
+  /* Hard offset in the warm border colour: a quiet echo of the button lift,
+     so cards read as Bread paper stacked on paper (not a soft drop shadow). */
+  box-shadow: 5px 5px 0 0 var(--border);
 }
 
 .card + .card {
-  margin-top: var(--s4);
+  margin-top: var(--s5);
 }
 
 .card__title {
-  font-size: 16px;
-  font-weight: 700;
+  font-size: 19px;
+  font-weight: 900;
+  letter-spacing: -0.01em;
   margin: 0 0 var(--s3);
 }
 
@@ -352,7 +372,7 @@ textarea.input {
   font-size: 16px; /* >=16px avoids iOS zoom-on-focus */
   color: var(--text);
   background: var(--surface);
-  border: 1px solid var(--border);
+  border: 1.5px solid var(--border);
   border-radius: var(--radius-sm);
   appearance: none;
 }
@@ -371,6 +391,7 @@ textarea.input {
 .nav__item:focus-visible,
 .list-item:focus-within {
   outline: none;
+  border-color: var(--ink);
   box-shadow: var(--focus);
 }
 
@@ -382,6 +403,9 @@ textarea.input {
 
 /* Buttons ----------------------------------------------------------------- */
 
+/* Bread "LiftedButton": a bordered control sitting on a hard #595959 offset
+   shadow that it presses down onto when tapped (shadow collapses, button
+   translates by the offset). This is the load-bearing Bread signature. */
 .btn {
   display: inline-flex;
   align-items: center;
@@ -392,55 +416,81 @@ textarea.input {
   padding: var(--s3) var(--s5);
   font: inherit;
   font-size: 16px;
-  font-weight: 600;
+  font-weight: 700;
   color: var(--text);
   background: var(--surface);
-  border: 1px solid var(--border);
+  border: 1.5px solid var(--ink);
   border-radius: var(--radius-sm);
+  box-shadow: var(--lift);
   cursor: pointer;
   text-decoration: none;
-  transition: background 0.12s ease, border-color 0.12s ease;
+  transition: transform 0.1s ease, box-shadow 0.1s ease, background 0.12s ease;
 }
 
 .btn:hover:not(:disabled) {
   background: var(--surface-2);
 }
 
+/* Press it down onto its shadow. */
+.btn:active:not(:disabled) {
+  transform: translate(4px, 4px);
+  box-shadow: 0 0 0 0 var(--lift-shadow);
+}
+
 .btn:disabled {
-  opacity: 0.55;
+  color: var(--muted);
+  background: var(--surface-2);
+  border-color: var(--border);
+  box-shadow: none;
   cursor: not-allowed;
 }
 
 .btn-primary {
   background: var(--brand);
-  border-color: var(--brand);
+  border-color: var(--ink);
   color: var(--brand-ink);
 }
 
 .btn-primary:hover:not(:disabled) {
-  background: #a04918;
-  border-color: #a04918;
+  background: #d24f13; /* orange-1 */
 }
 
 .btn-danger {
   background: var(--danger);
-  border-color: var(--danger);
+  border-color: var(--ink);
   color: #fff;
 }
 
 .btn-danger:hover:not(:disabled) {
-  background: #972222;
-  border-color: #972222;
+  background: #b81b13;
 }
 
+/* Secondary: the Bread tinted button — brand-soft fill, brand text. */
+.btn-secondary {
+  background: var(--brand-soft);
+  border-color: var(--ink);
+  color: var(--brand);
+}
+
+.btn-secondary:hover:not(:disabled) {
+  background: #ffd6c0;
+}
+
+/* Ghost is the quiet, un-lifted tertiary action (no shadow, no border). */
 .btn-ghost {
   background: transparent;
   border-color: transparent;
   color: var(--brand);
+  box-shadow: none;
 }
 
 .btn-ghost:hover:not(:disabled) {
   background: var(--brand-soft);
+}
+
+.btn-ghost:active:not(:disabled) {
+  transform: none;
+  box-shadow: none;
 }
 
 .btn-block {
@@ -449,6 +499,9 @@ textarea.input {
 
 /* Badges & pills ---------------------------------------------------------- */
 
+/* Bread chip: paper fill, hairline ink border, pill radius. Status variants
+   keep a tinted fill but border in their own colour so they still read as
+   chips, not soft blobs. */
 .badge {
   display: inline-flex;
   align-items: center;
@@ -457,37 +510,41 @@ textarea.input {
   font-size: 12px;
   font-weight: 700;
   line-height: 1.6;
-  border-radius: 999px;
-  background: var(--surface-2);
-  color: var(--muted);
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+  color: var(--text);
+  border: 1.5px solid var(--ink);
   white-space: nowrap;
 }
 
 .badge-open {
   background: var(--brand-soft);
-  color: var(--brand);
+  border-color: var(--brand);
+  color: #a63e0e;
 }
 
 .badge-delivered {
   background: var(--ok-soft);
-  color: var(--ok);
+  border-color: var(--ok);
+  color: #1d6b00;
 }
 
 .badge-timeout {
   background: var(--warn-soft);
-  color: var(--warn);
+  border-color: var(--warn);
+  color: #8a5500;
 }
 
 .pill {
   display: inline-flex;
   align-items: center;
-  padding: 2px var(--s3);
+  padding: 3px var(--s3);
   font-size: 13px;
-  font-weight: 600;
-  border-radius: 999px;
-  background: var(--surface-2);
+  font-weight: 700;
+  border-radius: var(--radius-pill);
+  background: var(--surface);
   color: var(--text);
-  border: 1px solid var(--border);
+  border: 1.5px solid var(--ink);
 }
 
 /* Lists ------------------------------------------------------------------- */
