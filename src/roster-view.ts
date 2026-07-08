@@ -38,6 +38,14 @@ export function registerRosterView(store: BamStore): void {
   function render(container: HTMLElement): void {
     const roster = store.roster.doc()!;
     const admin = isAdmin(roster, store.peerId);
+    const netEndpoint = (() => {
+      try {
+        return (JSON.parse(localStorage.getItem("bam-local-first-config") ?? "{}") as { endpoint?: string })
+          .endpoint;
+      } catch {
+        return undefined;
+      }
+    })();
 
     clear(container);
 
@@ -79,8 +87,35 @@ export function registerRosterView(store: BamStore): void {
         ),
         h("span", { class: "pill" }, admin ? "admin" : "volunteer")
       ),
-      h("div", { class: "list-item__meta" }, "Roster URL (new devices join with this):"),
-      h("div", { class: "mono", style: { wordBreak: "break-all", fontSize: "13px" } }, store.roster.url)
+      h("div", { class: "list-item__meta" }, "Roster link (new devices join with this):"),
+      h(
+        "div",
+        { class: "row" },
+        h(
+          "div",
+          { class: "mono grow", style: { wordBreak: "break-all", fontSize: "13px" } },
+          store.roster.url
+        ),
+        h(
+          "button",
+          {
+            class: "btn",
+            onclick: () => {
+              void navigator.clipboard
+                .writeText(store.roster.url)
+                .then(() => toast("Roster link copied.", "success"));
+            },
+          },
+          "Copy"
+        )
+      ),
+      h(
+        "div",
+        { class: "list-item__meta" },
+        netEndpoint
+          ? `Sync relay: ${netEndpoint}`
+          : "Sync relay: none — this device is offline-only. Add one when you invite another device (below)."
+      )
     );
 
     // Admin action buttons per member (promote/demote/revoke/reinstate).

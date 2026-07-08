@@ -10,10 +10,11 @@
 
 import { WebCryptoSigner } from "@automerge/automerge-subduction";
 import { IndexedDBStorageAdapter } from "@automerge/automerge-repo-storage-indexeddb";
-import { learnedRelayPeers, openStore, type BamStore } from "../src/store.ts";
+import { DEFAULT_SYNC_ENDPOINT, learnedRelayPeers, openStore, type BamStore } from "../src/store.ts";
 import { isAdmin, parseInviteUrl, type InvitePayload } from "../src/roster.ts";
 import { makeWebApi } from "../src/webapi.ts";
 import { registerRosterView } from "../src/roster-view.ts";
+import { registerSettingsView } from "../src/settings-view.ts";
 import { LANGUAGES } from "../src/domain/catalog.ts";
 
 // Console assets inlined at build time (?raw) so the app is one bundle.
@@ -122,11 +123,13 @@ function firstRunScreen(root: HTMLElement, peerId: string): Promise<AppConfig> {
       logoSelect.append(opt);
     }
     const deviceName = el("input", { class: "input", placeholder: "e.g. Rosa — laptop" });
-    const createEndpoint = el("input", { class: "input", placeholder: "wss://relay…" });
+    // Default to the maintainers' community relay so a new org can invite and
+    // sync out of the box; changing/removing it is an "Advanced" option below.
+    const createEndpoint = el("input", { class: "input", value: DEFAULT_SYNC_ENDPOINT }) as HTMLInputElement;
     const createBtn = el("button", { class: "btn btn-primary btn-block" }, "Create a new org on this device");
 
     const rosterUrl = el("input", { class: "input", placeholder: "automerge:…" });
-    const endpoint = el("input", { class: "input", placeholder: "wss://relay…" });
+    const endpoint = el("input", { class: "input", value: DEFAULT_SYNC_ENDPOINT }) as HTMLInputElement;
     const relayPeer = el("input", { class: "input", placeholder: "64-hex relay key — optional" });
     const joinBtn = el("button", { class: "btn btn-secondary btn-block" }, "Join an existing org");
 
@@ -175,6 +178,18 @@ function firstRunScreen(root: HTMLElement, peerId: string): Promise<AppConfig> {
     const brandField = el("div", { class: "field" });
     brandField.append(el("label", { class: "label", for: brandColor.id }, "Brand color & logo"), brandRow);
 
+    // Advanced disclosure: swap in your own relay or go offline-only. The
+    // maintainers' community relay is the default (set on createEndpoint).
+    const createAdvanced = el("details", { class: "advanced" });
+    createAdvanced.append(
+      el("summary", {}, "Advanced: sync relay"),
+      field(
+        "Sync relay",
+        createEndpoint,
+        "Your team syncs through this relay. Point it at your own relay for sensitive data, or clear it to keep this org on this device only."
+      )
+    );
+
     const createCard = el("div", { class: "card stack" });
     createCard.append(
       el("h3", { class: "card__title" }, "Start your community"),
@@ -183,8 +198,22 @@ function firstRunScreen(root: HTMLElement, peerId: string): Promise<AppConfig> {
       field("Short name / initials", shortName),
       brandField,
       field("Your device name", deviceName),
-      field("Sync relay", createEndpoint, "Optional — only needed to sync with or invite other devices."),
+      el(
+        "div",
+        { class: "list-item__meta", style: "margin-top:2px" },
+        "Your team syncs through the community relay, so you can invite people right away. Name, colors, logo and tools are all editable later in Settings."
+      ),
+      createAdvanced,
       createBtn
+    );
+
+    // Join defaults to the community relay too; Advanced lets you match the
+    // org's own relay + pin its key.
+    const joinAdvanced = el("details", { class: "advanced" });
+    joinAdvanced.append(
+      el("summary", {}, "Advanced: sync relay"),
+      field("Sync relay", endpoint, "Defaults to the community relay. Use the same relay the org's admin uses."),
+      field("Relay key", relayPeer, "Leave blank to trust the relay on first connect.")
     );
 
     const joinCard = el("div", { class: "card stack" });
@@ -192,8 +221,12 @@ function firstRunScreen(root: HTMLElement, peerId: string): Promise<AppConfig> {
       el("h3", { class: "card__title" }, "Join an existing one"),
       el("p", { class: "muted card__lede" }, "Have a roster link from an admin? Enter it to add this device."),
       field("Roster link", rosterUrl),
-      field("Sync relay", endpoint),
-      field("Relay key", relayPeer, "Leave blank to trust the relay on first connect."),
+      el(
+        "div",
+        { class: "list-item__meta", style: "margin-top:2px" },
+        "Joins through the community relay by default. If the org runs its own relay, set it under Advanced."
+      ),
+      joinAdvanced,
       joinBtn,
       alertBox
     );
@@ -407,6 +440,7 @@ async function boot(): Promise<void> {
   const adminAtBoot = isAdmin(store.roster.doc(), store.peerId);
   if (adminAtBoot) runInlineScript(viewAdmin);
   registerRosterView(store);
+  registerSettingsView(store);
 
   // If THIS device's role changes (promoted/demoted by an admin elsewhere),
   // reload so the nav matches the new role. Roster changes are frequent

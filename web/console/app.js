@@ -382,4 +382,15 @@
     window.addEventListener("hashchange", renderCurrent);
     renderCurrent();
   };
+
+  /**
+   * Re-read the instance config, re-theme, and rebuild the nav + current view.
+   * The Settings view calls this after an admin edits org config in the CRDT
+   * doc, so branding and feature toggles take effect without a reload.
+   */
+  BAM.refreshChrome = async function refreshChrome() {
+    BAM.applyConfig(await loadConfig());
+    buildNav();
+    renderCurrent();
+  };
 })();

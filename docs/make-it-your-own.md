@@ -19,11 +19,15 @@ Open the app and choose **Create a new org on this device**. You'll set:
 | **Community name** | Shows in the top bar and the browser tab, e.g. *Anytown Mutual Aid*. |
 | **Short name / initials** | Used for the little logo chip if you pick the *Initials* logo, e.g. *AMA*. |
 | **Brand color** | Recolors the whole app — the top bar, buttons, highlights. Pick your color. |
-| **Logo** | *Loaf mark* (the default), *Initials chip* (your short name), or *No logo*. |
+| **Logo** | *Bread mark* (the default), *Initials chip* (your short name), or *No logo*. |
 | **Your device name** | So your team knows whose device this is, e.g. *Rosa — laptop*. You become the first admin. |
 
 Hit create. The app immediately wears your colors and name. Anyone you invite
 sees the same thing — the identity is shared with the rest of your data.
+
+None of this is locked in at creation: an admin can rename the org and change
+the colors, logo and which tools it uses anytime from **Settings**, and the
+change syncs to the whole team. See [Configure your org](configure-your-org.md).
 
 ## Change what you hand out
 
@@ -46,8 +50,9 @@ list of:
 The default lives in [`src/catalog.json`](../src/catalog.json). To ship a copy
 of the toolkit with a different catalog, edit that file, and your build carries
 your list. (Per-org catalog editing from inside the app is on the roadmap —
-today the catalog is baked into your copy at build time, while name/colors/logo
-are set live when you create your org.)
+today the catalog is baked into your copy at build time, while the name, colors,
+logo and which tools you use are all editable live in
+[Settings](configure-your-org.md).)
 
 ## Keep the words you use
 

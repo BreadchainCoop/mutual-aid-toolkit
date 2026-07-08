@@ -822,3 +822,36 @@ textarea.input {
   color: var(--muted);
   margin: var(--s4) 0 var(--s2);
 }
+
+/* Progressive-disclosure block (e.g. onboarding: a custom relay is opt-in;
+   the default is the maintainers' community relay). */
+details.advanced {
+  border-top: 1px solid var(--border);
+  margin-top: var(--s2);
+}
+
+details.advanced > summary {
+  cursor: pointer;
+  list-style: none;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--muted);
+  padding: var(--s3) 0;
+  user-select: none;
+}
+
+details.advanced > summary::-webkit-details-marker {
+  display: none;
+}
+
+details.advanced > summary::before {
+  content: "▸ ";
+}
+
+details.advanced[open] > summary {
+  color: var(--text);
+}
+
+details.advanced[open] > summary::before {
+  content: "▾ ";
+}
