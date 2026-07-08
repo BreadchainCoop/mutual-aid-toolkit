@@ -39,8 +39,8 @@ Open **Check-in**. This is the busy-day screen, built to be fast.
 2. **Go through their open requests.** For each thing they asked for:
    - They got it → **mark it delivered**.
    - They don't need it anymore → **mark it timed out**.
-   - You're out of stock → leave it open; they keep their place in line and get
-     called when it's back.
+   - You're out of stock → leave it open; the request stays on their household
+     record, so it shows up next time you build an Outreach list for that item.
 3. **Check them in** once you've gone through everything.
 
 At the end of the event, the **Distros** screen helps you mark no-shows so

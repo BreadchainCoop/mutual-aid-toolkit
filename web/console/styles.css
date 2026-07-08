@@ -79,28 +79,11 @@ h3,
   line-height: 1.06;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #171414;          /* text-standard as ink bg */
-    --surface: #201c1a;
-    --surface-2: #2a2523;
-    --border: #38322e;
-    --text: #f6f3eb;        /* paper on ink */
-    --muted: #b0a99c;
-    --brand: #f2793f;       /* lifted core-orange for dark */
-    --brand-ink: #171414;
-    --brand-soft: #3a2114;
-    --accent: #6fa39b;      /* lifted jade */
-    --accent-soft: #1f3330;
-    --ok: #5fbd85;
-    --ok-soft: #1e2f25;
-    --warn: #d9a94a;
-    --warn-soft: #322915;
-    --danger: #e5706b;
-    --danger-soft: #331c1c;
-    --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 4px 14px rgba(0, 0, 0, 0.35);
-  }
-}
+/* Bread is warm-paper always — no OS dark mode (matches crowdstake.fun /
+   safety-net, which pin light regardless of prefers-color-scheme). The
+   previous dark override flipped the whole app to an ink background, which
+   read as off-brand; it's removed on purpose. `color-scheme: light` below
+   keeps native controls/scrollbars light too. */
 
 * {
   box-sizing: border-box;
@@ -108,6 +91,8 @@ h3,
 
 html {
   -webkit-text-size-adjust: 100%;
+  color-scheme: light; /* always light — Bread is warm paper */
+  background: var(--bg);
 }
 
 body {

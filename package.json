@@ -13,7 +13,8 @@
     "build": "vite build",
     "dev": "vite",
     "cli": "node --experimental-strip-types src/cli.ts",
-    "build:single": "vite build --config vite.singlefile.config.ts"
+    "build:single": "vite build --config vite.singlefile.config.ts",
+    "build:site": "npm run build:single && node scripts/build-site.mjs"
   },
   "dependencies": {
     "@automerge/automerge-repo": "2.6.0-subduction.40",

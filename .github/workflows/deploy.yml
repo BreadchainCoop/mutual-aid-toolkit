@@ -1,6 +1,7 @@
 name: Deploy
 
-# Build the self-contained single-file app and publish it to GitHub Pages.
+# Build the Bread landing page + the self-contained single-file app and publish
+# them to GitHub Pages (landing at /, the app at /app/).
 # Open source means you can see for yourself: check the code, verify the build.
 
 on:
@@ -29,10 +30,10 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
-      - run: npm run build:single
+      - run: npm run build:site
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: dist-single
+          path: dist-site
 
   deploy:
     needs: build
