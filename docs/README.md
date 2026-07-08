@@ -7,8 +7,10 @@ Everything you need to run your own copy.
   distribution, in about ten minutes.
 - **[Configure your org](configure-your-org.md)** — name, colors, logo, and
   which tools your org uses (all editable live, in Settings).
+- **[Onboard a volunteer with a QR code](onboard-a-volunteer.md)** — the fast
+  path, from both the admin and volunteer side.
 - **[Invite people & manage your team](invite-and-manage.md)** — QR invites,
-  roles, and access control.
+  roles, and access control in full.
 - **[Run a distribution](run-a-distribution.md)** — intake → outreach →
   check-in → distros, end to end.
 

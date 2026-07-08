@@ -24,7 +24,8 @@ on every device.
 ## Add a volunteer (the easy way: a QR code)
 
 You don't need anyone's technical details. You hand them a code, they scan it,
-they're in.
+they're in. For a quick walkthrough from **both** sides — admin and volunteer —
+see [Onboard a volunteer with a QR code](onboard-a-volunteer.md).
 
 1. On **Your team**, open the **QR invite** card.
 2. Give the invite a name (e.g. *July distro volunteers*), and optionally set
