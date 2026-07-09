@@ -6,8 +6,8 @@
 //     app/index.html  <- dist-single/index.html (the built console)
 //
 // Run `npm run build:single` first so dist-single/ exists (build:site does).
-import { readFileSync, writeFileSync, mkdirSync, copyFileSync, rmSync, existsSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { readFileSync, writeFileSync, mkdirSync, copyFileSync, rmSync, existsSync, readdirSync } from "node:fs";
+import { dirname, resolve, basename } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -38,7 +38,28 @@ copyFileSync(appBundle, resolve(out, "app", "index.html"));
 // GitHub Pages: don't run the content through Jekyll.
 writeFileSync(resolve(out, ".nojekyll"), "");
 
+// Standalone Bread-styled guide pages: web/guides/<name>.html ->
+// dist-site/guides/<name>/index.html (fonts inlined; assets copied alongside).
+const guidesSrc = p("web", "guides");
+const GUIDE_ASSETS = { "onboard-a-volunteer": ["gifs/invite-qr.gif"] };
+const guides = existsSync(guidesSrc) ? readdirSync(guidesSrc).filter((f) => f.endsWith(".html")) : [];
+for (const file of guides) {
+  const name = basename(file, ".html");
+  let html = readFileSync(resolve(guidesSrc, file), "utf8");
+  if (html.includes("/*__FONTS__*/")) html = html.replace("/*__FONTS__*/", fonts);
+  const dir = resolve(out, "guides", name);
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(resolve(dir, "index.html"), html);
+  for (const asset of GUIDE_ASSETS[name] ?? []) {
+    copyFileSync(p("docs", asset), resolve(dir, basename(asset)));
+  }
+}
+
 const kb = (f) => Math.round(readFileSync(f).length / 1024);
 console.log(`dist-site assembled:`);
-console.log(`  index.html    ${kb(resolve(out, "index.html"))} kB  (landing + inlined fonts)`);
-console.log(`  app/index.html ${kb(resolve(out, "app", "index.html"))} kB  (console bundle)`);
+console.log(`  index.html      ${kb(resolve(out, "index.html"))} kB  (landing + inlined fonts)`);
+console.log(`  app/index.html  ${kb(resolve(out, "app", "index.html"))} kB  (console bundle)`);
+for (const file of guides) {
+  const name = basename(file, ".html");
+  console.log(`  guides/${name}/  ${kb(resolve(out, "guides", name, "index.html"))} kB`);
+}
