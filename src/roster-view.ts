@@ -35,6 +35,10 @@ export function registerRosterView(store: BamStore): void {
   const BAM = (window as unknown as { BAM: BamNamespace }).BAM;
   const { h, clear, toast } = BAM;
 
+  // Destructive / high-impact actions confirm inline before firing. Keyed by
+  // `${verb}:${id}`; persists across the view's re-renders.
+  const confirming = new Set<string>();
+
   function render(container: HTMLElement): void {
     const roster = store.roster.doc()!;
     const admin = isAdmin(roster, store.peerId);
@@ -136,6 +140,61 @@ export function registerRosterView(store: BamStore): void {
         label
       );
     }
+
+    // A two-step button for destructive/high-impact actions: first tap arms it
+    // (shows Confirm + Cancel), second confirms. Prevents accidental one-taps.
+    function confirmBtn(
+      key: string,
+      label: string,
+      confirmLabel: string,
+      cls: string,
+      fn: () => void
+    ): HTMLElement {
+      if (confirming.has(key)) {
+        return h(
+          "span",
+          { class: "row", style: { gap: "6px" } },
+          h(
+            "button",
+            {
+              class: `btn ${cls}`,
+              onclick: () => {
+                confirming.delete(key);
+                try {
+                  fn();
+                } catch (err) {
+                  toast(err instanceof Error ? err.message : String(err), "error");
+                }
+                render(container);
+              },
+            },
+            confirmLabel
+          ),
+          h(
+            "button",
+            {
+              class: "btn btn-ghost",
+              onclick: () => {
+                confirming.delete(key);
+                render(container);
+              },
+            },
+            "Cancel"
+          )
+        );
+      }
+      return h(
+        "button",
+        {
+          class: `btn ${cls}`,
+          onclick: () => {
+            confirming.add(key);
+            render(container);
+          },
+        },
+        label
+      );
+    }
     function memberActions(m: { peerId: string; name: string; role: string; revokedAt?: string }) {
       if (m.peerId === store.peerId) return []; // no actions on yourself (lockout-safe)
       if (m.revokedAt) {
@@ -148,8 +207,9 @@ export function registerRosterView(store: BamStore): void {
       }
       const actions: HTMLElement[] = [];
       if (m.role === "volunteer") {
+        // Granting admin is a privilege escalation → confirm.
         actions.push(
-          actionBtn("Make admin", "btn-ghost", () => {
+          confirmBtn(`admin:${m.peerId}`, "Make admin", "Confirm — make admin", "btn-ghost", () => {
             setRole(store.roster, store.peerId, m.peerId, "admin");
             toast(`${m.name} is now an admin.`, "success");
           })
@@ -162,10 +222,11 @@ export function registerRosterView(store: BamStore): void {
           })
         );
       }
+      // Revoking cuts off a teammate's access → confirm.
       actions.push(
-        actionBtn("Revoke", "btn-danger", () => {
+        confirmBtn(`revoke:${m.peerId}`, "Revoke", "Confirm revoke", "btn-danger", () => {
           revokeMember(store.roster, store.peerId, m.peerId);
-          toast(`Revoked ${m.name}.`, "success");
+          toast(`Revoked ${m.name} — they'll stop getting updates.`, "success");
         })
       );
       return actions;
@@ -311,22 +372,10 @@ export function registerRosterView(store: BamStore): void {
               )
             ),
             !inv.revokedAt && admin
-              ? h(
-                  "button",
-                  {
-                    class: "btn btn-danger",
-                    onclick: () => {
-                      try {
-                        revokeInvite(store.roster, store.peerId, inv.id);
-                        toast("Invite revoked — no new devices can use it.", "success");
-                        render(container);
-                      } catch (err) {
-                        toast(err instanceof Error ? err.message : String(err), "error");
-                      }
-                    },
-                  },
-                  "Revoke"
-                )
+              ? confirmBtn(`revoke-invite:${inv.id}`, "Revoke", "Confirm revoke", "btn-danger", () => {
+                  revokeInvite(store.roster, store.peerId, inv.id);
+                  toast("Invite revoked — no new devices can use it.", "success");
+                })
               : null
           )
         )
