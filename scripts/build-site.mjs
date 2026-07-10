@@ -6,7 +6,7 @@
 //     app/index.html  <- dist-single/index.html (the built console)
 //
 // Run `npm run build:single` first so dist-single/ exists (build:site does).
-import { readFileSync, writeFileSync, mkdirSync, copyFileSync, rmSync, existsSync, readdirSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync, copyFileSync, cpSync, rmSync, existsSync, readdirSync } from "node:fs";
 import { dirname, resolve, basename } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -39,6 +39,11 @@ copyFileSync(appBundle, resolve(out, "app", "index.html"));
 writeFileSync(resolve(out, ".nojekyll"), "");
 // Custom domain — included in the artifact so an Actions deploy keeps it.
 writeFileSync(resolve(out, "CNAME"), "mutualaid.fun\n");
+
+// Static assets shared by the landing + guide pages (e.g. the Decentral Park
+// co-brand logomark) → dist-site/assets/.
+const assetsSrc = p("web", "assets");
+if (existsSync(assetsSrc)) cpSync(assetsSrc, resolve(out, "assets"), { recursive: true });
 
 // Standalone Bread-styled guide pages: web/guides/<name>.html ->
 // dist-site/guides/<name>/index.html (fonts inlined; assets copied alongside).

@@ -3,9 +3,10 @@
 **Practical tools for working people to run their own mutual aid.**
 
 Your community, your data, your rules — no company in the middle. It runs on
-your own devices, works offline, and every line is open source. Built by the
-[Bread Cooperative](https://breadchain.xyz) and free for any community to use,
-change, and deploy as their own.
+your own devices, works offline, and every line is open source. A joint project
+by the [Bread Cooperative](https://breadchain.xyz) and
+[Decentral Park](https://github.com/decentralparknyc), free for any community to
+use, change, and deploy as their own.
 
 > This is what solidarity looks like in practice. Real people, building real
 > tools, for real community benefit.
@@ -112,6 +113,8 @@ The distribution workflow began as
 [Bushwick Ayuda Mutua](https://bushwickayudamutua.com)'s field-tested system.
 This toolkit generalizes it so any community can make it their own. Branding
 and typeface (Pogaca) from the Bread Cooperative
-[UI kit](https://github.com/BreadchainCoop/bread-ui-kit).
+[UI kit](https://github.com/BreadchainCoop/bread-ui-kit), with
+[Decentral Park](https://github.com/decentralparknyc/decentralpark-ui-kit) as a
+co-creating partner.
 
 MIT licensed. Built together, owned together.

@@ -118,6 +118,13 @@
       .footer__links { display: flex; flex-wrap: wrap; gap: 20px; margin-left: auto; }
       .footer__links a { color: var(--ink); font-weight: 700; font-size: 15px; text-decoration: none; opacity: 0.8; }
       .footer__links a:hover { color: var(--brand); opacity: 1; }
+      .cobrand { width: 100%; display: flex; align-items: center; flex-wrap: wrap; gap: 10px 14px; margin-top: 6px; }
+      .cobrand__label { color: var(--muted); font-size: 14px; font-weight: 700; }
+      .cobrand__org { display: inline-flex; align-items: center; gap: 8px; color: var(--ink); text-decoration: none; font-weight: 800; font-size: 15px; }
+      .cobrand__org:hover { color: var(--brand); }
+      .cobrand__mark { width: 26px; height: 26px; display: block; }
+      .cobrand__mark--bread { border-radius: 6px; }
+      .cobrand__x { color: var(--muted); font-weight: 800; }
 
       :focus-visible { outline: 3px solid var(--accent-2); outline-offset: 2px; }
       @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } *, *::before, *::after { transition-duration: 0.01ms !important; } }
@@ -256,6 +263,18 @@
           <a href="../../app/">Launch</a>
           <a href="https://github.com/BreadchainCoop/mutual-aid-toolkit/tree/main/docs">All docs</a>
           <a href="https://github.com/BreadchainCoop/mutual-aid-toolkit">GitHub</a>
+        </div>
+        <div class="cobrand">
+          <span class="cobrand__label">A joint project by</span>
+          <a class="cobrand__org" href="https://breadchain.xyz" target="_blank" rel="noopener">
+            <svg class="cobrand__mark cobrand__mark--bread" viewBox="0 0 24 24" fill="none" aria-hidden="true" xmlns="http://www.w3.org/2000/svg"><rect width="24" height="24" rx="1" fill="#EA5817"/><path d="M12 2C17.5229 2 22 6.47707 22 12C22 17.5229 17.5229 22 12 22C6.47715 22 2 17.5229 2 12C2 6.47708 6.47715 2.00003 12 2ZM14.3408 5.29297C12.4756 3.38695 9.24614 4.31242 9.00781 7.06836C8.71004 10.2135 6.428 8.50568 4.73242 10.2549C4.23121 10.8325 3.93217 11.6407 4.03223 12.4004C4.1788 13.457 5.00016 14.3578 6.04688 14.6133C7.23725 14.9308 8.47122 14.7913 8.87402 16.2539C9.10395 17.2226 9.02515 18.1173 9.82617 18.873C11.2248 20.1897 13.7586 20.0309 14.666 18.251C14.9821 17.6941 15.0286 17.0362 15.1455 16.4199C15.2641 15.7661 15.6561 15.2425 16.2715 15.0195C17.1065 14.6907 18.1474 14.7487 18.916 14.209C19.7227 13.6639 20.1575 12.6219 20.0127 11.665L20.0107 11.6553H20.0117C19.8534 10.6212 18.999 9.75756 18.0195 9.45215C17.4388 9.2583 16.7938 9.27297 16.2266 9.03711C15.7147 8.84214 15.3674 8.41598 15.2119 7.89551C14.9524 6.97173 15.0667 6.05432 14.3408 5.29297ZM11.5635 9.73633C13.5275 9.52302 14.8604 10.5413 14.5449 12.5957L14.542 12.6064C14.3779 13.5544 13.7225 14.1602 12.7842 14.2852C12.2152 14.3748 11.5674 14.3599 11.0068 14.2266C10.7009 14.1515 10.4206 14.0289 10.1963 13.8496C9.41978 13.2008 9.2933 11.9151 9.65918 10.999C9.97258 10.2334 10.7541 9.81643 11.5635 9.73633Z" fill="#F6F3EB"/></svg>
+            Bread Cooperative
+          </a>
+          <span class="cobrand__x" aria-hidden="true">×</span>
+          <a class="cobrand__org" href="https://github.com/decentralparknyc" target="_blank" rel="noopener">
+            <img class="cobrand__mark" src="../../assets/dp-logomark.png" width="26" height="26" alt="" />
+            Decentral Park
+          </a>
         </div>
       </div>
     </footer>
