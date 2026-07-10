@@ -1,4 +1,4 @@
-# Mutual Aid Toolkit
+# mutualaid.fun
 
 **Practical tools for working people to run their own mutual aid.**
 

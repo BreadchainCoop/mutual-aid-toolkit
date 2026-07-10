@@ -1,4 +1,4 @@
-# Mutual Aid Toolkit — docs
+# mutualaid.fun — docs
 
 Everything you need to run your own copy.
 

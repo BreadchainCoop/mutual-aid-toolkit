@@ -37,6 +37,8 @@ writeFileSync(resolve(out, "index.html"), landing);
 copyFileSync(appBundle, resolve(out, "app", "index.html"));
 // GitHub Pages: don't run the content through Jekyll.
 writeFileSync(resolve(out, ".nojekyll"), "");
+// Custom domain — included in the artifact so an Actions deploy keeps it.
+writeFileSync(resolve(out, "CNAME"), "mutualaid.fun\n");
 
 // Standalone Bread-styled guide pages: web/guides/<name>.html ->
 // dist-site/guides/<name>/index.html (fonts inlined; assets copied alongside).
