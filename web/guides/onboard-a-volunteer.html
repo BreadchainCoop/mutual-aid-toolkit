@@ -57,6 +57,7 @@
       .site-header__inner { display: flex; align-items: center; gap: 18px; height: 68px; max-width: var(--maxw); margin: 0 auto; padding: 0 24px; }
       .brand { display: flex; align-items: center; gap: 11px; text-decoration: none; color: var(--ink); min-width: 0; }
       .brand__mark { width: 34px; height: 34px; display: block; border-radius: 7px; box-shadow: var(--lift-sm); }
+      .brand__mark--dp { border-radius: 0; box-shadow: none; margin-left: -3px; }
       .brand__name { font-family: var(--font-display); font-weight: 900; font-size: 19px; letter-spacing: -0.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
       .site-nav { display: flex; align-items: center; gap: 20px; margin-left: auto; }
       .site-nav a { color: var(--ink); text-decoration: none; font-weight: 700; font-size: 15px; opacity: 0.82; white-space: nowrap; }
@@ -139,6 +140,7 @@
       <div class="site-header__inner">
         <a class="brand" href="../../" aria-label="mutualaid.fun home">
           <svg class="brand__mark" viewBox="0 0 24 24" fill="none" aria-hidden="true" xmlns="http://www.w3.org/2000/svg"><rect width="24" height="24" rx="1" fill="#EA5817"/><path d="M12 2C17.5229 2 22 6.47707 22 12C22 17.5229 17.5229 22 12 22C6.47715 22 2 17.5229 2 12C2 6.47708 6.47715 2.00003 12 2ZM14.3408 5.29297C12.4756 3.38695 9.24614 4.31242 9.00781 7.06836C8.71004 10.2135 6.428 8.50568 4.73242 10.2549C4.23121 10.8325 3.93217 11.6407 4.03223 12.4004C4.1788 13.457 5.00016 14.3578 6.04688 14.6133C7.23725 14.9308 8.47122 14.7913 8.87402 16.2539C9.10395 17.2226 9.02515 18.1173 9.82617 18.873C11.2248 20.1897 13.7586 20.0309 14.666 18.251C14.9821 17.6941 15.0286 17.0362 15.1455 16.4199C15.2641 15.7661 15.6561 15.2425 16.2715 15.0195C17.1065 14.6907 18.1474 14.7487 18.916 14.209C19.7227 13.6639 20.1575 12.6219 20.0127 11.665L20.0107 11.6553H20.0117C19.8534 10.6212 18.999 9.75756 18.0195 9.45215C17.4388 9.2583 16.7938 9.27297 16.2266 9.03711C15.7147 8.84214 15.3674 8.41598 15.2119 7.89551C14.9524 6.97173 15.0667 6.05432 14.3408 5.29297ZM11.5635 9.73633C13.5275 9.52302 14.8604 10.5413 14.5449 12.5957L14.542 12.6064C14.3779 13.5544 13.7225 14.1602 12.7842 14.2852C12.2152 14.3748 11.5674 14.3599 11.0068 14.2266C10.7009 14.1515 10.4206 14.0289 10.1963 13.8496C9.41978 13.2008 9.2933 11.9151 9.65918 10.999C9.97258 10.2334 10.7541 9.81643 11.5635 9.73633Z" fill="#F6F3EB"/></svg>
+          <img class="brand__mark brand__mark--dp" src="../../assets/dp-logomark.png" width="34" height="34" alt="Decentral Park" />
           <span class="brand__name">mutualaid.fun</span>
         </a>
         <nav class="site-nav" aria-label="Primary">
