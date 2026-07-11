@@ -58,6 +58,21 @@
         } catch (_e) {
           state.fulfilled = null;
         }
+        // Waitlist board + catalog labels (both non-fatal).
+        try {
+          state.waitlist = await api.waitlist();
+        } catch (_e) {
+          state.waitlist = null;
+        }
+        try {
+          const cat = await api.catalog();
+          state.labels = {};
+          (cat.goods || []).concat(cat.social_services || []).forEach((t) => {
+            state.labels[t.key] = t.label;
+          });
+        } catch (_e) {
+          state.labels = {};
+        }
         renderResult();
       } catch (err) {
         state.metrics = null;
@@ -277,6 +292,228 @@
 
       result.append(barsCard);
       renderFulfilled();
+      renderWaitlist();
+      renderImpact();
+    }
+
+    // English middle token of a trilingual label ("Español / Spanish / 西班牙语").
+    function shortLabel(label) {
+      const parts = String(label || "").split(" / ");
+      return parts[1] || parts[0] || label;
+    }
+
+    // The waitlist board: per item — open/paced counts, age buckets, language
+    // split, and the interpreter-gap signal. The report Maria compiles by hand.
+    function renderWaitlist() {
+      const rows = state.waitlist;
+      if (!rows || !rows.length) return;
+
+      const items = rows.map((r) => {
+        const langs = Object.entries(r.by_language || {})
+          .sort((a, b) => b[1] - a[1])
+          .map(([lang, n]) => `${shortLabel(lang)} ${n}`)
+          .join(" · ");
+        const age = r.age || {};
+        const meta = [
+          `≤30d: ${age.d30 || 0}`,
+          `≤90d: ${age.d90 || 0}`,
+          `≤180d: ${age.d180 || 0}`,
+          `older: ${age.older || 0}`,
+        ].join(" · ");
+        return h(
+          "li",
+          {
+            class: "list-item",
+            style: { flexDirection: "column", alignItems: "stretch", gap: "var(--s1)" },
+          },
+          h(
+            "div",
+            { class: "row row--between", style: { gap: "var(--s3)" } },
+            h("span", { class: "list-item__label" }, r.label || r.type),
+            h(
+              "span",
+              { class: "row", style: { gap: "6px" } },
+              r.paced > 0
+                ? h("span", { class: "badge", title: "Accepted but paced by an item cooldown" }, `⏸ ${r.paced} paced`)
+                : null,
+              r.unsupported_language > 0
+                ? h(
+                    "span",
+                    {
+                      class: "badge badge-missed",
+                      title: "Households with no catalog-supported language — needs an interpreter or translated outreach",
+                    },
+                    `🌐 ${r.unsupported_language} need an interpreter`
+                  )
+                : null,
+              h("span", { class: "badge badge-open mono" }, String(r.open))
+            )
+          ),
+          h("div", { class: "list-item__meta" }, meta),
+          r.oldest_open_at
+            ? h(
+                "div",
+                { class: "list-item__meta" },
+                `Oldest: ${window.BAM.fmtDate(r.oldest_open_at)}${langs ? ` — ${langs}` : ""}`
+              )
+            : langs
+              ? h("div", { class: "list-item__meta" }, langs)
+              : null
+        );
+      });
+
+      result.append(
+        h(
+          "div",
+          { class: "card stack" },
+          h("h2", { class: "card__title" }, "Waitlist by item"),
+          h(
+            "p",
+            { class: "muted", style: { margin: "0", fontSize: "13px" } },
+            "Every open request by item — how old, in which language, and where the interpreter gaps are."
+          ),
+          h("ul", { class: "list" }, items)
+        )
+      );
+    }
+
+    // Impact report: deliveries over a date range + a PII-free copy button —
+    // the org's shareable "work completed" story.
+    function renderImpact() {
+      const startInput = h("input", { class: "input", type: "date" });
+      const endInput = h("input", { class: "input", type: "date" });
+      const report = h("div", {});
+      let lastImpact = null;
+
+      const genBtn = h(
+        "button",
+        {
+          class: "btn btn-primary",
+          onclick: async () => {
+            genBtn.disabled = true;
+            genBtn.textContent = "Generating…";
+            try {
+              const range = {};
+              if (startInput.value) range.start = startInput.value;
+              if (endInput.value) range.end = endInput.value;
+              lastImpact = await api.impact(range);
+              drawReport();
+            } catch (err) {
+              toast(err.detail || "Could not generate the report.", "error");
+            } finally {
+              genBtn.disabled = false;
+              genBtn.textContent = "Generate";
+            }
+          },
+        },
+        "Generate"
+      );
+
+      function rangeText() {
+        if (!lastImpact) return "";
+        if (lastImpact.start && lastImpact.end) return `${lastImpact.start} → ${lastImpact.end}`;
+        if (lastImpact.start) return `since ${lastImpact.start}`;
+        if (lastImpact.end) return `through ${lastImpact.end}`;
+        return "all time";
+      }
+
+      function reportMarkdown() {
+        const lines = Object.entries(lastImpact.delivered || {})
+          .sort((a, b) => b[1] - a[1])
+          .filter(([, n]) => n > 0)
+          .map(([type, n]) => `- ${shortLabel(state.labels[type] || type)}: ${n}`);
+        return [
+          `# ${rangeText()} impact — ${lastImpact.total_delivered} requests fulfilled`,
+          ...lines,
+          "",
+          "Counts only — no personal data.",
+        ].join("\n");
+      }
+
+      function copyReport() {
+        const text = reportMarkdown();
+        const done = () => toast("Impact report copied — counts only, no personal data.", "success");
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(text).then(done, () => {
+            fallbackCopy(text);
+            done();
+          });
+        } else {
+          fallbackCopy(text);
+          done();
+        }
+      }
+
+      function fallbackCopy(text) {
+        const ta = document.createElement("textarea");
+        ta.value = text;
+        ta.style.position = "fixed";
+        ta.style.opacity = "0";
+        document.body.appendChild(ta);
+        ta.select();
+        try {
+          document.execCommand("copy");
+        } catch (_e) {
+          /* nothing else to try */
+        }
+        document.body.removeChild(ta);
+      }
+
+      function drawReport() {
+        clear(report);
+        if (!lastImpact) return;
+        const entries = Object.entries(lastImpact.delivered || {})
+          .sort((a, b) => b[1] - a[1])
+          .filter(([, n]) => n > 0);
+        report.append(
+          h(
+            "div",
+            { class: "stack", style: { marginTop: "var(--s3)" } },
+            h(
+              "div",
+              { class: "mono", style: { fontSize: "32px", fontWeight: "800", lineHeight: "1" } },
+              String(lastImpact.total_delivered)
+            ),
+            h("div", { class: "muted" }, `requests fulfilled (${rangeText()})`),
+            entries.length
+              ? h(
+                  "ul",
+                  { class: "list" },
+                  entries.map(([type, n]) =>
+                    h(
+                      "li",
+                      { class: "list-item" },
+                      h("span", { class: "list-item__label" }, shortLabel(state.labels[type] || type)),
+                      h("span", { class: "badge badge-open mono" }, String(n))
+                    )
+                  )
+                )
+              : h("p", { class: "muted" }, "Nothing delivered in this range."),
+            h("button", { class: "btn", onclick: copyReport }, "📋 Copy report")
+          )
+        );
+      }
+
+      result.append(
+        h(
+          "div",
+          { class: "card stack" },
+          h("h2", { class: "card__title" }, "Impact report"),
+          h(
+            "p",
+            { class: "muted", style: { margin: "0", fontSize: "13px" } },
+            "What got delivered over a period — counts only, safe to share with donors and the community."
+          ),
+          h(
+            "div",
+            { class: "row", style: { gap: "var(--s3)", flexWrap: "wrap" } },
+            startInput,
+            endInput,
+            genBtn
+          ),
+          report
+        )
+      );
     }
 
     // Fulfilled deliveries over the last 30 days, grouped per day

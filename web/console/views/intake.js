@@ -89,6 +89,9 @@
     const customGoods = [];
     // Extra free-text languages the operator typed.
     const customLanguages = [];
+    // Per-item catalog policy (seasonal windows / pauses), keyed by type key.
+    // Loaded async from api.catalog(); {} until it arrives.
+    let policyByKey = {};
 
     const heading = h(
       "div",
@@ -143,6 +146,26 @@
     // Compact chip-toggle picker (see BAM.langPicker) — replaces the old wall
     // of trilingual checkboxes. Selection still stores the full labels.
     const langPick = BAM.langPicker({});
+    // Preferred ("lead with") language — separate from "also speaks", so
+    // outreach routes by real preference instead of an overloaded multi-pick.
+    const preferredSelect = h("select", { class: "input", id: "intake-preferred-lang" });
+    function refreshPreferredOptions() {
+      const selected = langPick.getSelected();
+      const current = preferredSelect.value;
+      clear(preferredSelect);
+      preferredSelect.append(h("option", { value: "" }, "—"));
+      selected.forEach((label) => {
+        preferredSelect.append(
+          h("option", { value: label }, window.BAM.langShort(label))
+        );
+      });
+      // Keep a still-valid choice; otherwise default to the first selection.
+      preferredSelect.value = selected.includes(current) ? current : selected[0] || "";
+    }
+    // langPicker has no change callback; chip clicks bubble through its root.
+    langPick.el.addEventListener("click", () => setTimeout(refreshPreferredOptions, 0));
+    refreshPreferredOptions();
+
     const languagesCard = h(
       "div",
       { class: "card stack" },
@@ -152,7 +175,13 @@
         { class: "muted", style: { margin: "0" } },
         "Tap the languages this household speaks."
       ),
-      langPick.el
+      langPick.el,
+      field(
+        "intake-preferred-lang",
+        "Preferred language",
+        preferredSelect,
+        "The language outreach should lead with."
+      )
     );
 
     // ---- goods card ------------------------------------------------------
@@ -178,6 +207,12 @@
       "Add"
     );
 
+    // Seasonal/paused items note — filled once the catalog policies load.
+    const pausedNote = h("p", {
+      class: "muted",
+      style: { margin: "0", fontSize: "13px", display: "none" },
+    });
+
     const goodsCard = h(
       "div",
       { class: "card stack" },
@@ -188,6 +223,7 @@
         "Tap the goods this household needs. Add anything else by name."
       ),
       goodsChips,
+      pausedNote,
       h(
         "div",
         { class: "field" },
@@ -363,13 +399,61 @@
     renderGoodsChips();
     setTimeout(() => phoneInput.focus(), 0);
 
+    // Catalog policies (seasonal windows / pauses) — applied when they load.
+    (async () => {
+      try {
+        const cat = await api.catalog();
+        (cat.goods || []).concat(cat.social_services || []).forEach((t) => {
+          policyByKey[t.key] = t;
+        });
+        applyCatalogPolicies();
+      } catch (_e) {
+        /* offline-first: the form works without policy annotations */
+      }
+    })();
+
+    function isPaused(key) {
+      const t = policyByKey[key];
+      return !!t && t.in_season === false;
+    }
+
+    function applyCatalogPolicies() {
+      renderGoodsChips();
+      // Hide paused social services (they'd only grow an unworked backlog).
+      SOCIAL_SERVICES.forEach((svc, i) => {
+        const rowEl = serviceBoxes[i];
+        if (!rowEl) return;
+        const paused = isPaused(svc.key);
+        rowEl.style.display = paused ? "none" : "";
+        if (paused) {
+          const box = document.getElementById(`svc-${svc.key}`);
+          if (box) box.checked = false;
+        }
+      });
+      const paused = Object.values(policyByKey)
+        .filter((t) => t.in_season === false)
+        .map((t) => prettyType(t.key));
+      if (paused.length) {
+        pausedNote.textContent = `Not offered right now: ${paused.join(", ")}.`;
+        pausedNote.style.display = "";
+      } else {
+        pausedNote.style.display = "none";
+      }
+    }
+
     // ---- goods chip UI ---------------------------------------------------
 
     // Render one toggleable chip per common good + each custom good.
     function renderGoodsChips() {
       clear(goodsChips);
       const chips = [];
-      COMMON_GOODS.forEach((g) => chips.push(goodsChip(g.key, g.label, false)));
+      COMMON_GOODS.forEach((g) => {
+        if (isPaused(g.key)) {
+          selectedGoods.delete(g.key);
+          return; // seasonally paused — hidden, listed in the note below
+        }
+        chips.push(goodsChip(g.key, g.label, false));
+      });
       customGoods.forEach((value) => chips.push(goodsChip(value, prettyType(value), true)));
       goodsChips.append(...chips);
       // Every selection change flows through here, so this keeps the
@@ -478,6 +562,7 @@
         name: nameInput.value.trim() || null,
         email: emailInput.value.trim() || null,
         languages: collectLanguages(),
+        preferred_language: preferredSelect.value || null,
         request_types: [...selectedGoods],
         social_service_requests: social,
         internet_access: collectInternetAccess(),
@@ -652,6 +737,20 @@
           )
         );
       }
+      // Per-item cooldowns: the request was ACCEPTED but paced — tell the
+      // household the rule out loud (never silently drop a request).
+      (res.paced_types || []).forEach((p) => {
+        rows.push(
+          caution(
+            "⏸",
+            "info",
+            `${prettyType(p.type)}: delivered to them recently — they can request it again after ${window.BAM.fmtDate(p.until)}. The request is saved and will re-enter outreach then.`
+          )
+        );
+      });
+      (res.out_of_season_types || []).forEach((t) => {
+        rows.push(caution("🗓", "info", `${prettyType(t)} isn't offered right now, so it wasn't added.`));
+      });
 
       const card = h(
         "div",

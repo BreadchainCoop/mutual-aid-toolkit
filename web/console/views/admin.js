@@ -123,6 +123,7 @@
     clear(container);
     container.append(heading);
     renderAccessCard(container);
+    renderDataAccessCard(container);
 
     // Build each job card.
     container.append(
@@ -505,6 +506,108 @@
             ),
             h("span", { class: "badge " + (m.revoked ? "badge-timeout" : "badge-open") }, m.revoked ? "revoked" : m.role),
             action
+          )
+        );
+      });
+      card.append(list);
+    }
+    draw();
+  }
+
+  /* Data access — per-device, per-domain grants (backed by BAM.access). Denying
+     a domain stops that data syncing to the device. Admin-only; each toggle
+     re-renders the card in place. */
+  function renderDataAccessCard(parent) {
+    const access = window.BAM.access;
+    if (!access || !access.isAdmin || !access.isAdmin()) return;
+    const card = h("div", { class: "card stack" });
+    parent.append(card);
+
+    function draw() {
+      clear(card);
+      card.append(
+        h("h2", { class: "card__title" }, "Data access"),
+        h(
+          "p",
+          { class: "muted", style: { margin: "0" } },
+          "Choose which data each device can see. Denied data stops syncing to that device (it can't un-see what it already synced)."
+        )
+      );
+
+      const domains = access.domains();
+      if (!domains.length) {
+        card.append(
+          h(
+            "div",
+            { class: "empty-state" },
+            h("div", {}, "No restrictable data domains yet.")
+          )
+        );
+        return;
+      }
+
+      const others = access
+        .members()
+        .filter((m) => m.peerId !== access.myPeerId && !m.revoked);
+      if (!others.length) {
+        card.append(
+          h(
+            "div",
+            { class: "empty-state" },
+            h("div", {}, "No other devices yet — invite one from Your team.")
+          )
+        );
+        return;
+      }
+
+      const toggleGrant = (m, domain, newAllowed) => {
+        try {
+          access.setGrant(m.peerId, domain.key, newAllowed);
+          toast(
+            newAllowed
+              ? `${m.name} can now see ${domain.label}`
+              : `${m.name} can no longer see ${domain.label}`,
+            "success"
+          );
+        } catch (e) {
+          toast((e && e.message) || String(e), "error");
+        }
+        draw();
+      };
+
+      const list = h("ul", { class: "list" });
+      others.forEach((m) => {
+        const grants = access.grantsFor(m.peerId) || {};
+        const chips = domains.map((domain) => {
+          const on = grants[domain.key] !== false;
+          return h(
+            "button",
+            {
+              type: "button",
+              class: "langchip" + (on ? " langchip--on" : ""),
+              title: domain.hint || domain.label,
+              "aria-pressed": String(on),
+              onclick: () => toggleGrant(m, domain, !on),
+            },
+            on ? h("span", { class: "langchip__check", "aria-hidden": "true" }, "✓") : null,
+            domain.label
+          );
+        });
+        list.append(
+          h(
+            "li",
+            { class: "list-item" },
+            h(
+              "div",
+              { class: "list-item__body" },
+              h("div", { class: "list-item__label" }, m.name),
+              h(
+                "div",
+                { class: "list-item__meta mono", style: { wordBreak: "break-all" } },
+                m.peerId
+              )
+            ),
+            h("span", { class: "row", style: { gap: "6px", flexWrap: "wrap" } }, chips)
           )
         );
       });

@@ -111,6 +111,17 @@
 
     function familyRow(r) {
       const langs = (r.languages || []).map((l) => h("span", { class: "pill" }, l));
+      const flags = h(
+        "span",
+        { class: "row", style: { gap: "4px" } },
+        r.needs_delivery
+          ? h("span", { class: "badge", title: "Needs doorstep delivery" }, "🚚 delivery")
+          : null,
+        r.set_aside
+          ? h("span", { class: "badge", title: `Set aside: ${r.set_aside}` }, "📦 set-aside")
+          : null,
+        apptBadge(r.appointment_status)
+      );
       return h(
         "li",
         { class: "list-item list-item--selectable", onclick: () => navigate("checkin", { id: r.household_id }) },
@@ -127,7 +138,7 @@
             langs.length ? h("div", { class: "row" }, langs) : null
           )
         ),
-        apptBadge(r.appointment_status)
+        flags
       );
     }
   }

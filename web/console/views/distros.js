@@ -50,15 +50,34 @@
     const noShowRegion = h("div", { id: "distros-noshow" });
 
     clear(container);
-    container.append(
-      heading,
-      renderCreateForm(),
-      listRegion,
-      renderNoShowCard()
-    );
 
-    // Kick off the initial list load.
-    loadDistros();
+    // Data-access gate: distros live in their own grantable doc; a denied
+    // device gets a clear explanation instead of empty/erroring cards.
+    Promise.resolve(api.distrosAccess()).then((access) => {
+      if (access === "denied") {
+        clear(container);
+        container.append(
+          heading,
+          h(
+            "div",
+            { class: "card empty-state" },
+            h("div", { class: "empty-state__icon" }, "🔒"),
+            h("div", {}, "An admin hasn't granted this device access to Distros & shifts."),
+            h(
+              "p",
+              { class: "muted" },
+              "The rest of the app still works. Ask an admin to grant this device the Distros domain (Admin → Data access)."
+            )
+          )
+        );
+        return;
+      }
+      container.append(renderCreateForm(), listRegion, renderSlotUsageCard(), renderNoShowCard());
+      // Kick off the initial list load.
+      loadDistros();
+    });
+
+    container.append(heading);
 
     // ---- (A) create form -------------------------------------------------
 
@@ -108,6 +127,16 @@
         placeholder: "Anything volunteers should know",
         "aria-label": "Notes",
       });
+      const slotCapInput = h("input", {
+        class: "input",
+        id: "distro-slot-cap",
+        name: "slot_capacity",
+        type: "number",
+        inputmode: "numeric",
+        min: "1",
+        placeholder: "e.g. 15 — leave blank for no cap",
+        "aria-label": "Appointments per 30-minute slot",
+      });
 
       const submitBtn = h(
         "button",
@@ -125,6 +154,7 @@
               dateTimeInput,
               locationInput,
               durationInput,
+              slotCapInput,
               appointmentsInput,
               notesInput,
               submitBtn,
@@ -135,6 +165,7 @@
         field("distro-datetime", "Date & time", dateTimeInput),
         field("distro-location", "Location", locationInput),
         field("distro-duration", "Duration (minutes)", durationInput),
+        field("distro-slot-cap", "Appointments per 30-min slot", slotCapInput),
         field("distro-appointments", "Appointments", appointmentsInput),
         field("distro-notes", "Notes", notesInput),
         submitBtn
@@ -168,6 +199,16 @@
         }
         payload.duration_minutes = Math.round(dur);
       }
+      const capRaw = els.slotCapInput.value.trim();
+      if (capRaw !== "") {
+        const cap = Number(capRaw);
+        if (!Number.isFinite(cap) || cap < 1) {
+          toast("Slot capacity must be a positive number.", "info");
+          els.slotCapInput.focus();
+          return;
+        }
+        payload.slot_capacity = Math.round(cap);
+      }
 
       setCreating(true, els.submitBtn);
       try {
@@ -177,6 +218,7 @@
         els.dateTimeInput.value = "";
         els.locationInput.value = "";
         els.durationInput.value = "";
+        els.slotCapInput.value = "";
         els.appointmentsInput.value = "";
         els.notesInput.value = "";
         await loadDistros();
@@ -269,27 +311,154 @@
     }
 
     function distroCard(d) {
+      const cancelled = d.status === "Cancelled";
       const meta = [];
       if (d.location) meta.push(h("span", { class: "pill" }, `📍 ${d.location}`));
       if (d.duration_minutes != null)
         meta.push(h("span", { class: "pill" }, `${d.duration_minutes} min`));
+      if (d.slot_capacity != null)
+        meta.push(h("span", { class: "pill", title: "Max appointments per 30-minute slot" }, `cap ${d.slot_capacity}/slot`));
       if (d.appointments)
         meta.push(h("span", { class: "pill" }, `Appts: ${d.appointments}`));
 
       return h(
         "li",
-        { class: "list-item", style: { alignItems: "flex-start" } },
+        {
+          class: "list-item",
+          style: cancelled
+            ? { alignItems: "flex-start", opacity: "0.6" }
+            : { alignItems: "flex-start" },
+        },
         h(
           "div",
           { class: "list-item__body stack" },
           h(
             "div",
-            { class: "list-item__label" },
-            fmtDateTime(d.date_time) || "Date TBD"
+            { class: "row" },
+            h("div", { class: "list-item__label" }, fmtDateTime(d.date_time) || "Date TBD"),
+            cancelled ? h("span", { class: "badge badge-timeout" }, "Cancelled") : null
           ),
           meta.length ? h("div", { class: "row" }, meta) : null,
+          cancelled && d.cancel_reason
+            ? h("div", { class: "list-item__meta" }, `Reason: ${d.cancel_reason}`)
+            : null,
           d.notes ? h("div", { class: "list-item__meta" }, d.notes) : null
+        ),
+        cancelled
+          ? null
+          : h(
+              "button",
+              {
+                class: "btn btn-ghost",
+                type: "button",
+                title: "Cancel this distro and move booked families to the rebooking queue",
+                onclick: () => doCancel(d),
+              },
+              "Cancel"
+            )
+      );
+    }
+
+    // Cancel a distro: booked families are moved to the rebooking queue so
+    // nobody shows up outside a closed venue claiming a cita.
+    async function doCancel(d) {
+      const when = fmtDateTime(d.date_time) || d.date_time;
+      if (
+        !confirm(
+          `Cancel the ${when} distro?\n\nEvery booked family is moved to the rebooking queue (Outreach → Needs rebooking) so they can be given a new appointment.`
         )
+      ) {
+        return;
+      }
+      const reason = prompt("Reason (optional — shown on the distro):") || "";
+      try {
+        const out = await api.cancelDistro(d.id, reason.trim() ? { reason: reason.trim() } : {});
+        const n = (out.rebooked_household_ids || []).length;
+        toast(
+          n
+            ? `Cancelled — ${n} ${n === 1 ? "family" : "families"} moved to the rebooking queue (see Outreach).`
+            : "Cancelled — nobody was booked yet.",
+          "success"
+        );
+        await loadDistros();
+      } catch (err) {
+        toast(err.detail || "Could not cancel the distro.", "error");
+      }
+    }
+
+    // ---- slot usage check --------------------------------------------------
+
+    function renderSlotUsageCard() {
+      const dateInput = h("input", {
+        class: "input",
+        id: "slot-usage-date",
+        type: "date",
+        value: todayLocalIso(),
+        "aria-label": "Date to check",
+      });
+      const out = h("div", {});
+      const checkBtn = h(
+        "button",
+        {
+          class: "btn",
+          type: "button",
+          onclick: async () => {
+            checkBtn.disabled = true;
+            try {
+              const usage = await api.slotUsage(dateInput.value);
+              clear(out);
+              const entries = Object.entries(usage.usage || {}).sort((a, b) =>
+                a[0].localeCompare(b[0])
+              );
+              const cap = usage.slot_capacity;
+              out.append(
+                h(
+                  "div",
+                  { class: "list-item__meta", style: { marginTop: "var(--s2)" } },
+                  cap != null ? `Cap: ${cap} per 30-min slot.` : "No slot cap set for this date."
+                ),
+                entries.length
+                  ? h(
+                      "ul",
+                      { class: "list" },
+                      entries.map(([time, n]) =>
+                        h(
+                          "li",
+                          { class: "list-item" },
+                          h("span", { class: "list-item__label" }, time || "No time set"),
+                          h(
+                            "span",
+                            {
+                              class: `badge ${cap != null && n >= cap ? "badge-timeout" : "badge-open"} mono`,
+                              title: cap != null && n >= cap ? "At or over capacity" : "",
+                            },
+                            cap != null ? `${n} / ${cap}` : String(n)
+                          )
+                        )
+                      )
+                    )
+                  : h("div", { class: "list-item__meta" }, "No bookings for this date yet.")
+              );
+            } catch (err) {
+              toast(err.detail || "Could not check slot usage.", "error");
+            } finally {
+              checkBtn.disabled = false;
+            }
+          },
+        },
+        "Check"
+      );
+      return h(
+        "div",
+        { class: "card stack" },
+        h("h2", { class: "card__title" }, "Booking load by slot"),
+        h(
+          "p",
+          { class: "muted", style: { margin: "0" } },
+          "See how full each 30-minute slot is for a day before texting another round."
+        ),
+        h("div", { class: "row" }, h("div", { class: "grow" }, dateInput), checkBtn),
+        out
       );
     }
 

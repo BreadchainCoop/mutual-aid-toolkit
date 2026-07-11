@@ -108,7 +108,7 @@
       h(
         "div",
         { class: "field" },
-        h("label", { class: "label", for: "checkin-name" }, "…or name (if they arrived without their phone)"),
+        h("label", { class: "label", for: "checkin-name" }, "…or name or email (if they arrived without their phone)"),
         nameInput
       ),
       lookupBtn
@@ -163,6 +163,9 @@
             state.view = await api.lookup(phone);
             renderResult();
           }
+        } else if (name.includes("@")) {
+          // Email-fragment search — the households the phone pipeline misses.
+          await routeMatches(await api.searchByEmail(name), name);
         } else {
           await routeMatches(await api.searchByName(name), name);
         }
@@ -385,15 +388,30 @@
           else selectedSet.delete(req.id);
         },
       });
+      const today = new Date().toLocaleDateString("en-CA");
+      const paced = req.paced_until && req.paced_until > today;
       const label = h(
         "label",
         { class: "list-item__body", for: checkbox.id },
         h("div", { class: "list-item__label" }, req.label || req.type),
         req.request_opened_at
           ? h("div", { class: "list-item__meta" }, `Opened ${fmtDate(req.request_opened_at)}`)
+          : null,
+        paced
+          ? h(
+              "div",
+              { class: "list-item__meta" },
+              `⏸ Paced until ${fmtDate(req.paced_until)} — delivered to them recently (item cooldown).`
+            )
           : null
       );
-      return h("li", { class: "list-item list-item--selectable" }, checkbox, label, statusBadge(req.status));
+      const badges = h(
+        "span",
+        { class: "row", style: { gap: "4px" } },
+        req.partner_org ? h("span", { class: "badge", title: "Fulfilling partner org" }, `→ ${req.partner_org}`) : null,
+        statusBadge(req.status)
+      );
+      return h("li", { class: "list-item list-item--selectable" }, checkbox, label, badges);
     }
 
     function requestList(items, selectedSet, emptyMsg) {
@@ -404,6 +422,133 @@
         "ul",
         { class: "list" },
         items.map((req) => requestRow(req, selectedSet))
+      );
+    }
+
+    // ---- new-feature actions ---------------------------------------------
+
+    async function doSetAside() {
+      const hh = state.view && state.view.household;
+      if (!hh) return;
+      if (hh.set_aside) {
+        if (!confirm("Clear the set-aside note?")) return;
+        await api.setSetAside(hh.id, { note: null });
+        toast("Set-aside cleared.", "success");
+      } else {
+        const note = prompt("What should the crew bag for after-hours pickup?\n(e.g. 2 packs diapers size 4 — handoff via Colectiva)");
+        if (!note || !note.trim()) return;
+        await api.setSetAside(hh.id, { note: note.trim() });
+        toast("Set aside for pickup.", "success");
+      }
+      await refresh();
+    }
+
+    async function doToggleDelivery() {
+      const hh = state.view && state.view.household;
+      if (!hh) return;
+      await api.setNeedsDelivery(hh.id, { on: !hh.needs_delivery });
+      toast(hh.needs_delivery ? "Delivery flag removed." : "Flagged for doorstep delivery.", "success");
+      await refresh();
+    }
+
+    // Contact-fix editor (admins + devices with the contact-fix grant): the
+    // safe way to correct a typo'd phone without full database access.
+    function contactFixPanel(hh) {
+      const phoneEdit = h("input", {
+        class: "input",
+        type: "tel",
+        value: hh.phone_number || "",
+        placeholder: "(718) 555-0142",
+        "aria-label": "Corrected phone number",
+      });
+      const emailEdit = h("input", {
+        class: "input",
+        type: "email",
+        value: hh.email || "",
+        placeholder: "name@example.com",
+        "aria-label": "Corrected email",
+      });
+      const saveBtn = h(
+        "button",
+        {
+          class: "btn",
+          type: "button",
+          onclick: async () => {
+            const body = {};
+            const newPhone = phoneEdit.value.trim();
+            const newEmail = emailEdit.value.trim();
+            if (newPhone && newPhone !== (hh.phone_number || "")) body.phone_number = newPhone;
+            if (newEmail && newEmail !== (hh.email || "")) body.email = newEmail;
+            if (!Object.keys(body).length) {
+              toast("Nothing changed.", "info");
+              return;
+            }
+            saveBtn.disabled = true;
+            try {
+              await api.updateContact(hh.id, body);
+              toast("Contact info updated (change is audited).", "success");
+              await refresh();
+            } catch (err) {
+              toast((err && err.detail) || "Could not update contact info.", "error");
+              saveBtn.disabled = false;
+            }
+          },
+        },
+        "Save contact fix"
+      );
+      return h(
+        "details",
+        {},
+        h("summary", { class: "muted" }, "✏️ Edit contact info"),
+        h(
+          "div",
+          { class: "stack", style: { marginTop: "var(--s2)" } },
+          phoneEdit,
+          emailEdit,
+          saveBtn,
+          h(
+            "span",
+            { class: "muted", style: { fontSize: "12px" } },
+            "Fixes are logged to the household notes (masked — last 4 digits only)."
+          )
+        )
+      );
+    }
+
+    // Referral cues ("invite them to scan the English-classes QR") that match
+    // this household's open request types. Cached per view render.
+    async function referralCues(v) {
+      let refs;
+      try {
+        refs = (await api.referrals()).referrals || [];
+      } catch (_e) {
+        return null;
+      }
+      if (!refs.length) return null;
+      const openTypes = new Set(
+        (v.open_requests || []).concat(v.open_social_service_requests || []).map((r) => r.type)
+      );
+      const hits = refs.filter(
+        (r) => !(r.show_for_types || []).length || r.show_for_types.some((t) => openTypes.has(t))
+      );
+      if (!hits.length) return null;
+      return h(
+        "div",
+        {
+          class: "card stack",
+          style: { borderColor: "var(--brand)", borderWidth: "2px" },
+        },
+        h("h2", { class: "card__title" }, "💡 While they're here"),
+        ...hits.map((r) =>
+          h(
+            "div",
+            { class: "row row--between" },
+            h("span", {}, r.label),
+            r.url
+              ? h("a", { class: "btn btn-ghost", href: r.url, target: "_blank", rel: "noopener" }, "Open link")
+              : null
+          )
+        )
       );
     }
 
@@ -431,6 +576,19 @@
           h("div", { class: "grow" }, h("h2", { class: "card__title", style: { margin: "0" } }, hh.name || "Unnamed household")),
           appointmentBadge(hh.appointment_status)
         ),
+        // Their booked distro was cancelled — flag it where the volunteer looks.
+        hh.needs_rebooking
+          ? h(
+              "div",
+              { class: "row", style: { alignItems: "flex-start" } },
+              h("span", { class: "badge badge-timeout" }, "🔁"),
+              h(
+                "span",
+                {},
+                `Their ${hh.rebook_from ? fmtDate(hh.rebook_from) + " " : ""}distro was cancelled — they need a new appointment (see Outreach → Needs rebooking).`
+              )
+            )
+          : null,
         phoneBits.length ? h("div", { class: "row" }, phoneBits) : null,
         h(
           "div",
@@ -447,6 +605,17 @@
             : null,
           hh.languages && hh.languages.length
             ? h("span", { class: "pill" }, hh.languages.join(", "))
+            : null,
+          hh.preferred_language
+            ? h("span", { class: "pill", title: "Preferred language" }, `★ ${window.BAM.langShort(hh.preferred_language)}`)
+            : null,
+          hh.needs_delivery ? h("span", { class: "badge", title: "Needs doorstep delivery" }, "🚚 delivery") : null,
+          hh.set_aside
+            ? h(
+                "span",
+                { class: "badge", title: `By ${hh.set_aside.by} · ${fmtDate(hh.set_aside.at)}` },
+                `📦 ${hh.set_aside.note}`
+              )
             : null
         ),
         // Delivered Request Types lookup (spec 4): what they already received.
@@ -476,8 +645,33 @@
             disabled: state.loading,
           },
           hh.appointment_status === "Checked-in" ? "Check in again" : "Check in"
+        ),
+        // Secondary flags: set-aside bagging + doorstep delivery.
+        h(
+          "div",
+          { class: "row" },
+          h(
+            "button",
+            { class: "btn btn-ghost", type: "button", onclick: doSetAside, disabled: state.loading },
+            hh.set_aside ? "Clear set-aside" : "📦 Set aside for pickup"
+          ),
+          h(
+            "button",
+            { class: "btn btn-ghost", type: "button", onclick: doToggleDelivery, disabled: state.loading },
+            hh.needs_delivery ? "Remove delivery flag" : "🚚 Needs delivery"
+          )
         )
       );
+
+      // Contact-fix editor, only for devices holding the grant.
+      Promise.resolve(api.canFixContacts()).then((can) => {
+        if (can) summary.append(contactFixPanel(hh));
+      });
+      // Referral cues load async and slot in between summary and requests.
+      const cueSlot = h("div", {});
+      referralCues(v).then((cueCard) => {
+        if (cueCard) cueSlot.append(cueCard);
+      });
 
       // Requests card with the two grouped lists + fulfill action.
       const totalOpen = goods.length + services.length;
@@ -519,7 +713,7 @@
             ]
       );
 
-      result.append(summary, requestsCard);
+      result.append(summary, cueSlot, requestsCard);
     }
   }
 
