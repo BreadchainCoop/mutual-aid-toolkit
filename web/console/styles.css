@@ -1354,3 +1354,12 @@ details.advanced[open] > summary::before {
 .grid__row--link:hover {
   background: var(--brand-soft);
 }
+
+.grid__rownum {
+  width: 40px;
+  min-width: 40px;
+  text-align: right;
+  color: var(--muted);
+  font-size: 11.5px;
+  background: var(--surface-2, #f0ece2);
+}

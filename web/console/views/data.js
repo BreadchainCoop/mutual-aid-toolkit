@@ -67,7 +67,13 @@
       statuses: ["Open", "Delivered", "Timeout"],
       fetch: (params) => api.browseRequests(params),
       columns: [
-        { key: "label", label: "Item", get: (r) => short(r.label || r.type), sort: (r) => short(r.label || r.type).toLowerCase() },
+        {
+          key: "label",
+          label: "Item",
+          get: (r) => h("span", { class: "pill" }, short(r.label || r.type)),
+          csv: (r) => short(r.label || r.type),
+          sort: (r) => short(r.label || r.type).toLowerCase(),
+        },
         { key: "status", label: "Status", get: (r) => statusBadge(r.status), csv: (r) => r.status, sort: (r) => r.status },
         { key: "opened", label: "Opened", get: (r) => fmtDate(r.request_opened_at), csv: (r) => r.request_opened_at || "", sort: (r) => r.request_opened_at || "" },
         { key: "household", label: "Household", get: (r) => r.household_name || "—", sort: (r) => (r.household_name || "").toLowerCase() },
@@ -77,12 +83,40 @@
       ],
       rowId: (r) => r.household_id,
     },
+    furniture: {
+      label: "Furniture",
+      statuses: ["Open", "Delivered", "Timeout"],
+      fetch: (params) => api.browseRequests({ ...params, category: "furniture" }),
+      columns: [
+        {
+          key: "label",
+          label: "Item",
+          get: (r) => h("span", { class: "pill" }, short(r.label || r.type)),
+          csv: (r) => short(r.label || r.type),
+          sort: (r) => short(r.label || r.type).toLowerCase(),
+        },
+        { key: "status", label: "Status", get: (r) => statusBadge(r.status), csv: (r) => r.status, sort: (r) => r.status },
+        { key: "household", label: "Household", get: (r) => r.household_name || "—", sort: (r) => (r.household_name || "").toLowerCase() },
+        { key: "phone", label: "Phone", mono: true, get: (r) => r.household_phone || "—", sort: (r) => r.household_phone || "" },
+        { key: "address", label: "Delivery address", get: (r) => r.address || "—", sort: (r) => r.address || "" },
+        { key: "bin", label: "BIN", mono: true, get: (r) => r.bin || "—", sort: (r) => r.bin || "" },
+        { key: "opened", label: "Opened", get: (r) => fmtDate(r.request_opened_at), csv: (r) => r.request_opened_at || "", sort: (r) => r.request_opened_at || "" },
+        { key: "notes", label: "Notes", wide: true, get: (r) => r.notes || "", sort: (r) => r.notes || "" },
+      ],
+      rowId: (r) => r.household_id,
+    },
     services: {
       label: "Social services",
       statuses: ["Open", "Delivered", "Timeout"],
       fetch: (params) => api.browseServices(params),
       columns: [
-        { key: "label", label: "Service", get: (r) => short(r.label || r.type), sort: (r) => short(r.label || r.type).toLowerCase() },
+        {
+          key: "label",
+          label: "Service",
+          get: (r) => h("span", { class: "pill" }, short(r.label || r.type)),
+          csv: (r) => short(r.label || r.type),
+          sort: (r) => short(r.label || r.type).toLowerCase(),
+        },
         { key: "status", label: "Status", get: (r) => statusBadge(r.status), csv: (r) => r.status, sort: (r) => r.status },
         { key: "partner", label: "Partner org", get: (r) => r.partner_org || "—", sort: (r) => r.partner_org || "" },
         { key: "mesh", label: "Mesh status", get: (r) => r.mesh_status || "—", sort: (r) => r.mesh_status || "" },
@@ -92,6 +126,32 @@
         { key: "notes", label: "Notes", wide: true, get: (r) => r.notes || "", sort: (r) => r.notes || "" },
       ],
       rowId: (r) => r.household_id,
+    },
+    fulfilled: {
+      label: "Fulfilled counts",
+      statuses: null,
+      // The metrics endpoint returns the whole per-day/per-type ledger; page
+      // it client-side so the grid contract stays the same.
+      fetch: async (params) => {
+        const rows = (await api.fulfilled({})) || [];
+        rows.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
+        return {
+          items: rows.slice(params.offset, params.offset + params.limit),
+          total: rows.length,
+        };
+      },
+      columns: [
+        { key: "date", label: "Date", get: (r) => fmtDate(r.date), csv: (r) => r.date, sort: (r) => r.date },
+        {
+          key: "label",
+          label: "Item",
+          get: (r) => h("span", { class: "pill" }, short(r.label || r.type)),
+          csv: (r) => short(r.label || r.type),
+          sort: (r) => short(r.label || r.type).toLowerCase(),
+        },
+        { key: "count", label: "Delivered", num: true, get: (r) => String(r.count ?? 0), sort: (r) => r.count ?? 0 },
+      ],
+      rowId: () => null,
     },
   };
 
@@ -273,7 +333,7 @@
         return;
       }
       const cols = def().columns;
-      const headCells = cols.map((c) =>
+      const headCells = [h("th", { class: "grid__rownum" }, "#")].concat(cols.map((c) =>
         h(
           "th",
           {
@@ -299,8 +359,8 @@
             state.sortKey === c.key ? (state.sortDir === 1 ? " ↑" : " ↓") : ""
           )
         )
-      );
-      const bodyRows = sortedItems().map((r) => {
+      ));
+      const bodyRows = sortedItems().map((r, i) => {
         const id = def().rowId(r);
         return h(
           "tr",
@@ -309,6 +369,7 @@
             title: id ? "Open in check-in" : null,
             onclick: id ? () => navigate("checkin", { id }) : null,
           },
+          h("td", { class: "grid__rownum mono" }, String(state.offset + i + 1)),
           cols.map((c) =>
             h(
               "td",
