@@ -1363,3 +1363,41 @@ details.advanced[open] > summary::before {
   font-size: 11.5px;
   background: var(--surface-2, #f0ece2);
 }
+
+/* Data grid: expanded record + sort affordance ------------------------------- */
+
+.grid__sorticon {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.grid__row--expanded td {
+  background: var(--brand-soft);
+}
+
+.grid__detail td {
+  white-space: normal;
+  max-width: none;
+  background: var(--surface);
+  border-bottom: 2px solid var(--ink);
+  padding: 0;
+}
+
+.grid__detail-body {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: var(--s2) var(--s4);
+  padding: var(--s3) var(--s4);
+}
+
+.grid__detail-field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 14px;
+}
+
+.grid__detail-body .btn {
+  justify-self: start;
+  align-self: end;
+}

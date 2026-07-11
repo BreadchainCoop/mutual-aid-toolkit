@@ -1,16 +1,18 @@
-/* Data view — the Airtable-style spreadsheet grid.
+/* Data view — the spreadsheet grid, made to feel like a spreadsheet.
  *
- * The guided views are for doing the work; this one is for SEEING the data:
- * dense rows, sticky column headers, sortable columns, status filters, and a
- * CSV export — one grid per table (Households / Requests / Social services),
- * like the production base's Data tab. Rows deep-link into check-in. */
+ * Local-first means the whole table is already on this device, so there's no
+ * fake pagination: each table loads fully, search filters every column as you
+ * type, sorting applies to the entire table, and status chips show live
+ * counts. Tap a row to expand the full record in place (nothing truncated),
+ * with a button through to check-in. CSV export = exactly what you see. */
 
 (function () {
   "use strict";
 
   const { h, clear, toast, api, navigate, fmtDate } = window.BAM;
 
-  const PAGE_SIZE = 50;
+  const RENDER_CHUNK = 100; // rows rendered per "Show more" (keeps DOM snappy)
+  const FETCH_PAGE = 200; // browse endpoints' max page size
 
   function short(label) {
     return window.BAM.langShort ? window.BAM.langShort(label) : label;
@@ -26,22 +28,25 @@
     return h("span", { class: `badge ${cls}` }, status);
   }
 
-  /* Table definitions: columns + fetcher per table. Each column:
-   * { key, label, get(row) -> text/node, csv(row) -> string, sort(row) -> comparable } */
+  function itemPill(r) {
+    return h("span", { class: "pill" }, short(r.label || r.type));
+  }
+
+  /* Table definitions. Columns: { key, label, get(row)→node/text,
+   * csv(row)→string (also the search/sort text when present), mono/num/wide }. */
   const TABLES = {
     households: {
       label: "Households",
-      statuses: null,
-      fetch: (params) => api.browseHouseholds(params),
-      searchable: true,
+      hasStatus: false,
+      fetchPage: (params) => api.browseHouseholds(params),
       columns: [
-        { key: "name", label: "Name", get: (r) => r.name || "—", sort: (r) => (r.name || "").toLowerCase() },
-        { key: "phone", label: "Phone", mono: true, get: (r) => r.phone_number || "—", sort: (r) => r.phone_number || "" },
+        { key: "name", label: "Name", get: (r) => r.name || "—", csv: (r) => r.name || "" },
+        { key: "phone", label: "Phone", mono: true, get: (r) => r.phone_number || "—", csv: (r) => r.phone_number || "" },
         {
           key: "languages",
           label: "Languages",
           get: (r) => (r.languages || []).map(short).join(", ") || "—",
-          sort: (r) => (r.languages || []).map(short).join(","),
+          csv: (r) => (r.languages || []).map(short).join(", "),
         },
         {
           key: "appt",
@@ -50,106 +55,75 @@
             r.appointment_date
               ? `${fmtDate(r.appointment_date)}${r.appointment_time ? " " + r.appointment_time : ""}${r.appointment_status ? " · " + r.appointment_status : ""}`
               : "—",
-          sort: (r) => r.appointment_date || "",
+          csv: (r) =>
+            r.appointment_date
+              ? `${r.appointment_date} ${r.appointment_time || ""} ${r.appointment_status || ""}`.trim()
+              : "",
         },
-        {
-          key: "open",
-          label: "Open reqs",
-          num: true,
-          get: (r) => String(r.open_request_count ?? 0),
-          sort: (r) => r.open_request_count ?? 0,
-        },
+        { key: "open", label: "Open reqs", num: true, get: (r) => String(r.open_request_count ?? 0), csv: (r) => String(r.open_request_count ?? 0) },
       ],
       rowId: (r) => r.id,
     },
     requests: {
       label: "Requests",
-      statuses: ["Open", "Delivered", "Timeout"],
-      fetch: (params) => api.browseRequests(params),
+      hasStatus: true,
+      fetchPage: (params) => api.browseRequests(params),
       columns: [
-        {
-          key: "label",
-          label: "Item",
-          get: (r) => h("span", { class: "pill" }, short(r.label || r.type)),
-          csv: (r) => short(r.label || r.type),
-          sort: (r) => short(r.label || r.type).toLowerCase(),
-        },
-        { key: "status", label: "Status", get: (r) => statusBadge(r.status), csv: (r) => r.status, sort: (r) => r.status },
-        { key: "opened", label: "Opened", get: (r) => fmtDate(r.request_opened_at), csv: (r) => r.request_opened_at || "", sort: (r) => r.request_opened_at || "" },
-        { key: "household", label: "Household", get: (r) => r.household_name || "—", sort: (r) => (r.household_name || "").toLowerCase() },
-        { key: "phone", label: "Phone", mono: true, get: (r) => r.household_phone || "—", sort: (r) => r.household_phone || "" },
-        { key: "address", label: "Address", get: (r) => r.address || "—", sort: (r) => r.address || "" },
-        { key: "notes", label: "Notes", wide: true, get: (r) => r.notes || "", sort: (r) => r.notes || "" },
+        { key: "label", label: "Item", get: itemPill, csv: (r) => short(r.label || r.type) },
+        { key: "status", label: "Status", get: (r) => statusBadge(r.status), csv: (r) => r.status },
+        { key: "opened", label: "Opened", get: (r) => fmtDate(r.request_opened_at), csv: (r) => r.request_opened_at || "" },
+        { key: "household", label: "Household", get: (r) => r.household_name || "—", csv: (r) => r.household_name || "" },
+        { key: "phone", label: "Phone", mono: true, get: (r) => r.household_phone || "—", csv: (r) => r.household_phone || "" },
+        { key: "address", label: "Address", get: (r) => r.address || "—", csv: (r) => r.address || "" },
+        { key: "notes", label: "Notes", wide: true, get: (r) => r.notes || "", csv: (r) => r.notes || "" },
       ],
       rowId: (r) => r.household_id,
     },
     furniture: {
       label: "Furniture",
-      statuses: ["Open", "Delivered", "Timeout"],
-      fetch: (params) => api.browseRequests({ ...params, category: "furniture" }),
+      hasStatus: true,
+      fetchPage: (params) => api.browseRequests({ ...params, category: "furniture" }),
       columns: [
-        {
-          key: "label",
-          label: "Item",
-          get: (r) => h("span", { class: "pill" }, short(r.label || r.type)),
-          csv: (r) => short(r.label || r.type),
-          sort: (r) => short(r.label || r.type).toLowerCase(),
-        },
-        { key: "status", label: "Status", get: (r) => statusBadge(r.status), csv: (r) => r.status, sort: (r) => r.status },
-        { key: "household", label: "Household", get: (r) => r.household_name || "—", sort: (r) => (r.household_name || "").toLowerCase() },
-        { key: "phone", label: "Phone", mono: true, get: (r) => r.household_phone || "—", sort: (r) => r.household_phone || "" },
-        { key: "address", label: "Delivery address", get: (r) => r.address || "—", sort: (r) => r.address || "" },
-        { key: "bin", label: "BIN", mono: true, get: (r) => r.bin || "—", sort: (r) => r.bin || "" },
-        { key: "opened", label: "Opened", get: (r) => fmtDate(r.request_opened_at), csv: (r) => r.request_opened_at || "", sort: (r) => r.request_opened_at || "" },
-        { key: "notes", label: "Notes", wide: true, get: (r) => r.notes || "", sort: (r) => r.notes || "" },
+        { key: "label", label: "Item", get: itemPill, csv: (r) => short(r.label || r.type) },
+        { key: "status", label: "Status", get: (r) => statusBadge(r.status), csv: (r) => r.status },
+        { key: "household", label: "Household", get: (r) => r.household_name || "—", csv: (r) => r.household_name || "" },
+        { key: "phone", label: "Phone", mono: true, get: (r) => r.household_phone || "—", csv: (r) => r.household_phone || "" },
+        { key: "address", label: "Delivery address", get: (r) => r.address || "—", csv: (r) => r.address || "" },
+        { key: "bin", label: "BIN", mono: true, get: (r) => r.bin || "—", csv: (r) => r.bin || "" },
+        { key: "opened", label: "Opened", get: (r) => fmtDate(r.request_opened_at), csv: (r) => r.request_opened_at || "" },
+        { key: "notes", label: "Notes", wide: true, get: (r) => r.notes || "", csv: (r) => r.notes || "" },
       ],
       rowId: (r) => r.household_id,
     },
     services: {
       label: "Social services",
-      statuses: ["Open", "Delivered", "Timeout"],
-      fetch: (params) => api.browseServices(params),
+      hasStatus: true,
+      fetchPage: (params) => api.browseServices(params),
       columns: [
-        {
-          key: "label",
-          label: "Service",
-          get: (r) => h("span", { class: "pill" }, short(r.label || r.type)),
-          csv: (r) => short(r.label || r.type),
-          sort: (r) => short(r.label || r.type).toLowerCase(),
-        },
-        { key: "status", label: "Status", get: (r) => statusBadge(r.status), csv: (r) => r.status, sort: (r) => r.status },
-        { key: "partner", label: "Partner org", get: (r) => r.partner_org || "—", sort: (r) => r.partner_org || "" },
-        { key: "mesh", label: "Mesh status", get: (r) => r.mesh_status || "—", sort: (r) => r.mesh_status || "" },
-        { key: "opened", label: "Opened", get: (r) => fmtDate(r.request_opened_at), csv: (r) => r.request_opened_at || "", sort: (r) => r.request_opened_at || "" },
-        { key: "household", label: "Household", get: (r) => r.household_name || "—", sort: (r) => (r.household_name || "").toLowerCase() },
-        { key: "phone", label: "Phone", mono: true, get: (r) => r.household_phone || "—", sort: (r) => r.household_phone || "" },
-        { key: "notes", label: "Notes", wide: true, get: (r) => r.notes || "", sort: (r) => r.notes || "" },
+        { key: "label", label: "Service", get: itemPill, csv: (r) => short(r.label || r.type) },
+        { key: "status", label: "Status", get: (r) => statusBadge(r.status), csv: (r) => r.status },
+        { key: "partner", label: "Partner org", get: (r) => r.partner_org || "—", csv: (r) => r.partner_org || "" },
+        { key: "mesh", label: "Mesh status", get: (r) => r.mesh_status || "—", csv: (r) => r.mesh_status || "" },
+        { key: "opened", label: "Opened", get: (r) => fmtDate(r.request_opened_at), csv: (r) => r.request_opened_at || "" },
+        { key: "household", label: "Household", get: (r) => r.household_name || "—", csv: (r) => r.household_name || "" },
+        { key: "phone", label: "Phone", mono: true, get: (r) => r.household_phone || "—", csv: (r) => r.household_phone || "" },
+        { key: "notes", label: "Notes", wide: true, get: (r) => r.notes || "", csv: (r) => r.notes || "" },
       ],
       rowId: (r) => r.household_id,
     },
     fulfilled: {
       label: "Fulfilled counts",
-      statuses: null,
-      // The metrics endpoint returns the whole per-day/per-type ledger; page
-      // it client-side so the grid contract stays the same.
-      fetch: async (params) => {
+      hasStatus: false,
+      fetchPage: null, // fetched in one call below
+      fetchAll: async () => {
         const rows = (await api.fulfilled({})) || [];
         rows.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
-        return {
-          items: rows.slice(params.offset, params.offset + params.limit),
-          total: rows.length,
-        };
+        return rows;
       },
       columns: [
-        { key: "date", label: "Date", get: (r) => fmtDate(r.date), csv: (r) => r.date, sort: (r) => r.date },
-        {
-          key: "label",
-          label: "Item",
-          get: (r) => h("span", { class: "pill" }, short(r.label || r.type)),
-          csv: (r) => short(r.label || r.type),
-          sort: (r) => short(r.label || r.type).toLowerCase(),
-        },
-        { key: "count", label: "Delivered", num: true, get: (r) => String(r.count ?? 0), sort: (r) => r.count ?? 0 },
+        { key: "date", label: "Date", get: (r) => fmtDate(r.date), csv: (r) => r.date || "" },
+        { key: "label", label: "Item", get: itemPill, csv: (r) => short(r.label || r.type) },
+        { key: "count", label: "Delivered", num: true, get: (r) => String(r.count ?? 0), csv: (r) => String(r.count ?? 0) },
       ],
       rowId: () => null,
     },
@@ -158,13 +132,13 @@
   function render(container) {
     const state = {
       table: "households",
-      status: "Open", // requests/services default filter
+      allRows: [], // the WHOLE table, fetched once per table switch
+      status: "Open",
       query: "",
-      offset: 0,
-      total: 0,
-      items: [],
       sortKey: null,
       sortDir: 1,
+      shown: RENDER_CHUNK,
+      expandedId: null, // row identity (index in filtered list) currently expanded
       loading: false,
     };
 
@@ -172,37 +146,67 @@
       "div",
       { class: "view-heading" },
       h("h1", {}, "Data"),
-      h("p", { class: "muted" }, "The raw tables, spreadsheet-style — sort, filter, export.")
+      h(
+        "p",
+        { class: "muted" },
+        "The raw tables. Type to search everything, click a column to sort, tap a row to see the whole record."
+      )
     );
 
     const pickerRow = h("div", { class: "row", style: { flexWrap: "wrap" } });
-    const controlsRow = h("div", { class: "row", style: { flexWrap: "wrap", gap: "var(--s2)" } });
+    const statusRow = h("div", { class: "row", style: { flexWrap: "wrap" } });
+    const searchInput = h("input", {
+      class: "input",
+      type: "search",
+      placeholder: "Search anything — name, phone, item, notes…",
+      "aria-label": "Search this table",
+      oninput: (e) => {
+        state.query = e.target.value;
+        state.shown = RENDER_CHUNK;
+        state.expandedId = null;
+        renderStatusChips();
+        renderGrid();
+      },
+    });
+    const exportBtn = h(
+      "button",
+      { class: "btn btn-ghost", type: "button", onclick: exportCsv },
+      "⬇︎ Export what I see (CSV)"
+    );
     const gridRegion = h("div", {});
-    const pagerRow = h("div", { class: "row row--between", style: { alignItems: "center" } });
 
     clear(container);
     container.append(
       heading,
-      h("div", { class: "card stack" }, pickerRow, controlsRow),
-      gridRegion,
-      pagerRow
+      h(
+        "div",
+        { class: "card stack" },
+        pickerRow,
+        h("div", { class: "row" }, h("div", { class: "grow" }, searchInput), exportBtn),
+        statusRow
+      ),
+      gridRegion
     );
 
     renderPicker();
-    renderControls();
     load();
 
     function def() {
       return TABLES[state.table];
     }
 
-    // ---- data ---------------------------------------------------------------
-
-    function buildParams(offset, limit) {
-      const params = { limit, offset };
-      if (def().statuses && state.status !== "All") params.status = state.status;
-      if (def().searchable && state.query.trim()) params.query = state.query.trim();
-      return params;
+    /* ---- data: fetch the WHOLE table once ---------------------------------
+     * The doc is local — "pagination" was just ceremony. Loop the browse
+     * endpoint's pages into memory, then search/sort/filter instantly. */
+    async function fetchAll() {
+      if (def().fetchAll) return def().fetchAll();
+      const rows = [];
+      for (let offset = 0; offset < 50_000; offset += FETCH_PAGE) {
+        const page = await def().fetchPage({ limit: FETCH_PAGE, offset });
+        rows.push(...(page.items || []));
+        if (offset + FETCH_PAGE >= (page.total || 0)) break;
+      }
+      return rows;
     }
 
     async function load() {
@@ -212,11 +216,14 @@
         h("div", { class: "loading" }, h("span", { class: "spinner" }), "Loading…")
       );
       try {
-        const page = await def().fetch(buildParams(state.offset, PAGE_SIZE));
-        state.items = page.items || [];
-        state.total = page.total || 0;
+        state.allRows = await fetchAll();
+        // Pre-compute each row's search haystack once.
+        const cols = def().columns;
+        for (const r of state.allRows) {
+          r.__hay = cols.map((c) => c.csv(r)).join(" ").toLowerCase();
+        }
+        renderStatusChips();
         renderGrid();
-        renderPager();
       } catch (err) {
         clear(gridRegion).append(
           h("div", { class: "card empty-state" }, (err && err.detail) || "Could not load the table.")
@@ -226,7 +233,7 @@
       }
     }
 
-    // ---- chrome -------------------------------------------------------------
+    /* ---- chrome ------------------------------------------------------------ */
 
     function renderPicker() {
       clear(pickerRow);
@@ -244,10 +251,13 @@
                 : null,
               onclick: () => {
                 state.table = key;
-                state.offset = 0;
+                state.status = "Open";
+                state.query = "";
+                searchInput.value = "";
                 state.sortKey = null;
+                state.shown = RENDER_CHUNK;
+                state.expandedId = null;
                 renderPicker();
-                renderControls();
                 load();
               },
             },
@@ -257,128 +267,216 @@
       });
     }
 
-    function renderControls() {
-      clear(controlsRow);
-      if (def().statuses) {
-        const sel = h(
-          "select",
-          {
-            class: "input",
-            style: { maxWidth: "160px" },
-            "aria-label": "Status filter",
-            onchange: (e) => {
-              state.status = e.target.value;
-              state.offset = 0;
-              load();
+    // Status chips with live counts ("Open 42 · Delivered 7…"), so filtering
+    // is one tap and you can see what you'd get before you tap it.
+    function renderStatusChips() {
+      clear(statusRow);
+      if (!def().hasStatus) return;
+      const matchesQuery = queryFilter();
+      const counts = { Open: 0, Delivered: 0, Timeout: 0 };
+      let total = 0;
+      for (const r of state.allRows) {
+        if (!matchesQuery(r)) continue;
+        total += 1;
+        if (counts[r.status] != null) counts[r.status] += 1;
+      }
+      ["Open", "Delivered", "Timeout", "All"].forEach((s) => {
+        const on = state.status === s;
+        const n = s === "All" ? total : counts[s];
+        statusRow.append(
+          h(
+            "button",
+            {
+              type: "button",
+              class: on ? "pill pill--on" : "pill",
+              "aria-pressed": String(on),
+              style: on
+                ? { background: "var(--brand)", color: "var(--brand-ink)", borderColor: "var(--brand)" }
+                : null,
+              onclick: () => {
+                state.status = s;
+                state.shown = RENDER_CHUNK;
+                state.expandedId = null;
+                renderStatusChips();
+                renderGrid();
+              },
             },
-          },
-          def().statuses.concat("All").map((s) => h("option", { value: s, selected: s === state.status }, s))
+            `${s} ${n}`
+          )
         );
-        controlsRow.append(sel);
-      }
-      if (def().searchable) {
-        const search = h("input", {
-          class: "input",
-          type: "search",
-          placeholder: "Search name or phone…",
-          value: state.query,
-          style: { maxWidth: "260px" },
-          "aria-label": "Search",
-          onkeydown: (e) => {
-            if (e.key === "Enter") {
-              state.query = e.target.value;
-              state.offset = 0;
-              load();
-            }
-          },
-        });
-        controlsRow.append(search);
-      }
-      controlsRow.append(
-        h(
-          "button",
-          { class: "btn btn-ghost", type: "button", onclick: exportCsv },
-          "⬇︎ Export CSV"
-        )
-      );
-    }
-
-    // ---- grid ---------------------------------------------------------------
-
-    function sortedItems() {
-      if (!state.sortKey) return state.items;
-      const col = def().columns.find((c) => c.key === state.sortKey);
-      if (!col) return state.items;
-      return [...state.items].sort((a, b) => {
-        const va = col.sort(a);
-        const vb = col.sort(b);
-        if (va < vb) return -state.sortDir;
-        if (va > vb) return state.sortDir;
-        return 0;
       });
     }
 
+    /* ---- filtering + sorting ------------------------------------------------ */
+
+    function queryFilter() {
+      const q = state.query.trim().toLowerCase();
+      if (!q) return () => true;
+      const words = q.split(/\s+/);
+      return (r) => words.every((w) => r.__hay.includes(w));
+    }
+
+    function visibleRows() {
+      const matchesQuery = queryFilter();
+      let rows = state.allRows.filter(
+        (r) => matchesQuery(r) && (!def().hasStatus || state.status === "All" || r.status === state.status)
+      );
+      if (state.sortKey) {
+        const col = def().columns.find((c) => c.key === state.sortKey);
+        if (col) {
+          const numeric = !!col.num;
+          rows = [...rows].sort((a, b) => {
+            const va = numeric ? Number(col.csv(a)) || 0 : col.csv(a).toLowerCase();
+            const vb = numeric ? Number(col.csv(b)) || 0 : col.csv(b).toLowerCase();
+            if (va < vb) return -state.sortDir;
+            if (va > vb) return state.sortDir;
+            return 0;
+          });
+        }
+      }
+      return rows;
+    }
+
+    /* ---- grid --------------------------------------------------------------- */
+
     function renderGrid() {
       clear(gridRegion);
-      if (!state.items.length) {
+      const rows = visibleRows();
+      const cols = def().columns;
+
+      const summaryBits = [`${rows.length} row${rows.length === 1 ? "" : "s"}`];
+      if (state.query.trim()) summaryBits.push(`matching “${state.query.trim()}”`);
+      if (state.sortKey) {
+        const col = cols.find((c) => c.key === state.sortKey);
+        if (col) summaryBits.push(`sorted by ${col.label} ${state.sortDir === 1 ? "A→Z" : "Z→A"}`);
+      }
+      gridRegion.append(h("p", { class: "muted", style: { margin: "0 0 var(--s2)" } }, summaryBits.join(" · ")));
+
+      if (!rows.length) {
         gridRegion.append(
           h(
             "div",
             { class: "card empty-state" },
             h("div", { class: "empty-state__icon" }, "🗒️"),
-            h("div", {}, "No rows match."),
-            h("p", { class: "muted" }, "Try another status filter, or load sample data from Admin.")
+            h("div", {}, state.query.trim() ? "Nothing matches that search." : "No rows here."),
+            h(
+              "p",
+              { class: "muted" },
+              state.query.trim() ? "Try fewer words, or another status chip." : "Try another status chip, or load sample data from Admin."
+            )
           )
         );
         return;
       }
-      const cols = def().columns;
-      const headCells = [h("th", { class: "grid__rownum" }, "#")].concat(cols.map((c) =>
-        h(
-          "th",
-          {
-            class: c.num ? "grid__num" : null,
-            "aria-sort":
-              state.sortKey === c.key ? (state.sortDir === 1 ? "ascending" : "descending") : "none",
-          },
+
+      const headCells = [h("th", { class: "grid__rownum" }, "#")].concat(
+        cols.map((c) =>
           h(
-            "button",
+            "th",
             {
-              type: "button",
-              class: "grid__sort",
+              class: c.num ? "grid__num" : null,
+              "aria-sort":
+                state.sortKey === c.key ? (state.sortDir === 1 ? "ascending" : "descending") : "none",
+            },
+            h(
+              "button",
+              {
+                type: "button",
+                class: "grid__sort",
+                title: "Sort by " + c.label,
+                onclick: () => {
+                  if (state.sortKey === c.key) state.sortDir = -state.sortDir;
+                  else {
+                    state.sortKey = c.key;
+                    state.sortDir = 1;
+                  }
+                  renderGrid();
+                },
+              },
+              c.label,
+              h(
+                "span",
+                { class: "grid__sorticon", "aria-hidden": "true" },
+                state.sortKey === c.key ? (state.sortDir === 1 ? " ↑" : " ↓") : " ↕"
+              )
+            )
+          )
+        )
+      );
+
+      const shownRows = rows.slice(0, state.shown);
+      const bodyRows = [];
+      shownRows.forEach((r, i) => {
+        const expanded = state.expandedId === i;
+        bodyRows.push(
+          h(
+            "tr",
+            {
+              class: "grid__row--link" + (expanded ? " grid__row--expanded" : ""),
+              title: expanded ? "Tap to close" : "Tap to see the whole record",
               onclick: () => {
-                if (state.sortKey === c.key) state.sortDir = -state.sortDir;
-                else {
-                  state.sortKey = c.key;
-                  state.sortDir = 1;
-                }
+                state.expandedId = expanded ? null : i;
                 renderGrid();
               },
             },
-            c.label,
-            state.sortKey === c.key ? (state.sortDir === 1 ? " ↑" : " ↓") : ""
-          )
-        )
-      ));
-      const bodyRows = sortedItems().map((r, i) => {
-        const id = def().rowId(r);
-        return h(
-          "tr",
-          {
-            class: id ? "grid__row--link" : null,
-            title: id ? "Open in check-in" : null,
-            onclick: id ? () => navigate("checkin", { id }) : null,
-          },
-          h("td", { class: "grid__rownum mono" }, String(state.offset + i + 1)),
-          cols.map((c) =>
-            h(
-              "td",
-              { class: [c.mono ? "mono" : "", c.num ? "grid__num" : "", c.wide ? "grid__wide" : ""].join(" ").trim() || null },
-              c.get(r)
+            h("td", { class: "grid__rownum mono" }, expanded ? "▾" : String(i + 1)),
+            cols.map((c) =>
+              h(
+                "td",
+                {
+                  class:
+                    [c.mono ? "mono" : "", c.num ? "grid__num" : "", c.wide ? "grid__wide" : ""]
+                      .join(" ")
+                      .trim() || null,
+                },
+                c.get(r)
+              )
             )
           )
         );
+        if (expanded) {
+          const id = def().rowId(r);
+          bodyRows.push(
+            h(
+              "tr",
+              { class: "grid__detail" },
+              h(
+                "td",
+                { colspan: String(cols.length + 1) },
+                h(
+                  "div",
+                  { class: "grid__detail-body" },
+                  cols.map((c) => {
+                    const value = c.csv(r);
+                    if (!value) return null;
+                    return h(
+                      "div",
+                      { class: "grid__detail-field" },
+                      h("span", { class: "label", style: { margin: "0" } }, c.label),
+                      h("span", { style: { whiteSpace: "pre-wrap", overflowWrap: "anywhere" } }, value)
+                    );
+                  }),
+                  id
+                    ? h(
+                        "button",
+                        {
+                          class: "btn btn-primary",
+                          type: "button",
+                          onclick: (e) => {
+                            e.stopPropagation();
+                            navigate("checkin", { id });
+                          },
+                        },
+                        "Open in check-in →"
+                      )
+                    : null
+                )
+              )
+            )
+          );
+        }
       });
+
       gridRegion.append(
         h(
           "div",
@@ -389,92 +487,49 @@
             h("thead", {}, h("tr", {}, headCells)),
             h("tbody", {}, bodyRows)
           )
-        ),
-        h(
-          "p",
-          { class: "muted", style: { fontSize: "12.5px", margin: "var(--s2) 0 0" } },
-          "Sorting applies to this page. Tap a row to open the household in check-in."
         )
       );
-    }
 
-    function renderPager() {
-      clear(pagerRow);
-      const from = state.total === 0 ? 0 : state.offset + 1;
-      const to = Math.min(state.offset + PAGE_SIZE, state.total);
-      pagerRow.append(
-        h("span", { class: "muted" }, `${from}–${to} of ${state.total}`),
-        h(
-          "span",
-          { class: "row" },
+      if (rows.length > state.shown) {
+        gridRegion.append(
           h(
             "button",
             {
-              class: "btn btn-ghost",
+              class: "btn btn-ghost btn-block",
               type: "button",
-              disabled: state.offset === 0,
+              style: { marginTop: "var(--s2)" },
               onclick: () => {
-                state.offset = Math.max(0, state.offset - PAGE_SIZE);
-                load();
+                state.shown += RENDER_CHUNK;
+                renderGrid();
               },
             },
-            "‹ Prev"
-          ),
-          h(
-            "button",
-            {
-              class: "btn btn-ghost",
-              type: "button",
-              disabled: state.offset + PAGE_SIZE >= state.total,
-              onclick: () => {
-                state.offset += PAGE_SIZE;
-                load();
-              },
-            },
-            "Next ›"
+            `Show ${Math.min(RENDER_CHUNK, rows.length - state.shown)} more (${rows.length - state.shown} left)`
           )
-        )
-      );
+        );
+      }
     }
 
-    // ---- CSV export (all pages of the current filter) -----------------------
+    /* ---- CSV export: exactly the filtered, sorted rows on screen ----------- */
 
-    async function exportCsv() {
+    function exportCsv() {
       const cols = def().columns;
+      const rows = visibleRows();
       const esc = (v) => {
         const s = String(v ?? "");
         return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
       };
-      try {
-        toast("Exporting…", "info");
-        const rows = [];
-        const limit = 200; // endpoint max page size
-        for (let offset = 0; offset < 10_000; offset += limit) {
-          const page = await def().fetch(buildParams(offset, limit));
-          rows.push(...(page.items || []));
-          if (offset + limit >= (page.total || 0)) break;
-        }
-        const lines = [cols.map((c) => esc(c.label)).join(",")];
-        for (const r of rows) {
-          lines.push(cols.map((c) => esc(c.csv ? c.csv(r) : textOf(c.get(r)))).join(","));
-        }
-        const blob = new Blob([lines.join("\n")], { type: "text/csv" });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = `${state.table}.csv`;
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        setTimeout(() => URL.revokeObjectURL(url), 5000);
-        toast(`Exported ${rows.length} rows.`, "success");
-      } catch (err) {
-        toast((err && err.detail) || "Export failed.", "error");
-      }
-    }
-
-    function textOf(v) {
-      return v instanceof Node ? v.textContent : String(v ?? "");
+      const lines = [cols.map((c) => esc(c.label)).join(",")];
+      for (const r of rows) lines.push(cols.map((c) => esc(c.csv(r))).join(","));
+      const blob = new Blob([lines.join("\n")], { type: "text/csv" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${state.table}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 5000);
+      toast(`Exported ${rows.length} rows — exactly what's on screen.`, "success");
     }
   }
 
