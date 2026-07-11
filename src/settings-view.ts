@@ -1,10 +1,11 @@
 /**
- * "Settings" console view — edit your org's identity, look, and which tools
- * it uses, after creation. The config lives in the CRDT base doc (OrgConfig),
- * so an admin's changes sync to every device on the team with no rebuild.
+ * Org settings — edit your org's identity, look, and which tools it uses,
+ * after creation. The config lives in the CRDT base doc (OrgConfig), so an
+ * admin's changes sync to every device on the team with no rebuild.
  *
- * Registered after app.js loads (like the Roster view) so it shares the same
- * BAM.h / component classes. Admins edit; volunteers see it read-only.
+ * Not a nav view of its own: it renders as the "Org settings" section of the
+ * Admin screen (admin.js calls window.BAM.renderOrgSettings), so org
+ * configuration lives in ONE place instead of two near-identical menu items.
  */
 
 import type { BamStore } from "./store.ts";
@@ -51,19 +52,6 @@ export function registerSettingsView(store: BamStore): void {
     const features = cfg.features ?? {};
 
     clear(container);
-
-    const heading = h(
-      "div",
-      { class: "view-heading" },
-      h("h1", {}, "Settings"),
-      h(
-        "p",
-        { class: "muted" },
-        admin
-          ? "Your org's name, look, and the tools it uses. Changes sync to every device on your team."
-          : "Your org's name, look, and the tools it uses. Only an admin can change these."
-      )
-    );
 
     // ---- Identity ---------------------------------------------------------
     const nameInput = h("input", {
@@ -228,8 +216,9 @@ export function registerSettingsView(store: BamStore): void {
           )
         );
 
-    container.append(heading, identityCard, lookCard, featuresCard, saveBar);
+    container.append(identityCard, lookCard, featuresCard, saveBar);
   }
 
-  BAM.registerView("settings", { title: "Settings", icon: "⚙️", render });
+  // Exposed for the Admin view's "Org settings" section (admin.js).
+  (BAM as unknown as { renderOrgSettings?: (c: HTMLElement) => void }).renderOrgSettings = render;
 }

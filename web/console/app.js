@@ -503,7 +503,7 @@
     { label: "Requests", views: ["intake", "lookup", "furniture", "services"] },
     { label: "Reach out", views: ["outreach"] },
     { label: "Organize", views: ["distros", "dashboard"] },
-    { label: "Your org", views: ["admin", "roster", "settings"] },
+    { label: "Your org", views: ["admin", "roster"] },
   ];
   const MOBILE_PRIMARY = ["home", "checkin", "intake", "outreach"];
 

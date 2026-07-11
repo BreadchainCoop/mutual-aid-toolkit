@@ -98,9 +98,8 @@
         ),
         isAdmin
           ? [
-              ["admin", "⚙️ Admin"],
+              ["admin", "⚙️ Admin & settings"],
               ["roster", "🤝 Volunteers"],
-              ["settings", "🎨 Settings"],
             ].map(([view, label]) =>
               h("a", { class: "btn btn-ghost", href: `#${view}` }, label)
             )
@@ -185,7 +184,7 @@
                 h(
                   "ul",
                   { class: "list" },
-                  step(1, "settings", "Make it yours", "Name, colors, logo, and which tools you use."),
+                  step(1, "admin", "Make it yours", "Name, colors, logo, and which tools you use — under Org settings."),
                   step(2, "roster", "Invite your team", "QR invites enroll volunteer devices in seconds."),
                   step(3, "distros", "Schedule a distro", "Date, place, and appointments per time slot."),
                   step(4, "intake", "Take your first request", "Only a phone number is required.")

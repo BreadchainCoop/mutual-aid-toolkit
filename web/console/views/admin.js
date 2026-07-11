@@ -16,6 +16,10 @@
 
   const { h, clear, toast, api, fmtDateTime } = window.BAM;
 
+  // Remember which sections the operator opened, across re-renders (saving
+  // org settings re-renders the whole view via refreshChrome).
+  const openSections = new Set(["Team & data access"]);
+
   // Humanize a report key: "timed_out_request_ids" -> "Timed out request ids".
   function humanizeKey(key) {
     const s = key.replace(/_/g, " ").trim();
@@ -116,7 +120,7 @@
       h(
         "p",
         { class: "muted" },
-        "Run the scheduled maintenance jobs by hand. These normally run on a cron; use them here to catch up or verify."
+        "Everything about how your org runs — settings, access, maintenance, and policies, in one place."
       )
     );
 
@@ -125,12 +129,19 @@
 
     // The Admin surface grew past "a stack of cards you scroll and hope" —
     // group it into collapsible sections so each visit starts with a scannable
-    // table of contents. Only the access section starts open.
-    const section = (icon, title, desc, open) => {
+    // table of contents. Open state survives re-renders (see openSections).
+    const section = (icon, title, desc) => {
       const body = h("div", { class: "stack", style: { marginTop: "var(--s2)" } });
       const el = h(
         "details",
-        { class: "admin-section", open: open || null },
+        {
+          class: "admin-section",
+          open: openSections.has(title) || null,
+          ontoggle: (e) => {
+            if (e.target.open) openSections.add(title);
+            else openSections.delete(title);
+          },
+        },
         h(
           "summary",
           {},
@@ -143,11 +154,23 @@
       return body;
     };
 
+    // Org settings (identity, look, tools) — merged in from the old separate
+    // Settings view so everything an admin configures lives on one screen.
+    const settingsBody = section(
+      "🎨",
+      "Org settings",
+      "Name, colors, logo, and which tools your org uses. Changes sync to every device."
+    );
+    if (window.BAM.renderOrgSettings) {
+      window.BAM.renderOrgSettings(settingsBody);
+    } else {
+      settingsBody.append(h("p", { class: "muted" }, "Settings are unavailable in this build."));
+    }
+
     const accessBody = section(
       "🔐",
       "Team & data access",
-      "Revoke devices, and choose which data each device can see.",
-      true
+      "Revoke devices, and choose which data each device can see."
     );
     renderAccessCard(accessBody);
     renderDataAccessCard(accessBody);
@@ -155,8 +178,7 @@
     const jobsBody = section(
       "🧹",
       "Maintenance jobs",
-      "Expire stale requests, publish website counts, scrub expired PII — and sample data for exploring.",
-      false
+      "Expire stale requests, publish website counts, scrub expired PII — and sample data for exploring."
     );
     jobsBody.append(
       jobCard({
@@ -216,16 +238,14 @@
     const catalogBody = section(
       "⏸",
       "Cooldowns & seasons",
-      "Per-item pacing after deliveries, and seasonal on/off windows.",
-      false
+      "Per-item pacing after deliveries, and seasonal on/off windows."
     );
     renderItemPoliciesCard(catalogBody);
 
     const partnersBody = section(
       "🤝",
       "Partners & referrals",
-      "Apply a partner's fulfillment list, and set the check-in referral cues.",
-      false
+      "Apply a partner's fulfillment list, and set the check-in referral cues."
     );
     renderPartnerSyncCard(partnersBody);
     renderReferralsCard(partnersBody);
