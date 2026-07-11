@@ -30,6 +30,7 @@
     { value: "no_response_timeout", label: "No response (times out requests)" },
     { value: "wrong_number", label: "Wrong number (marks invalid + times out)" },
     { value: "no_longer_needed", label: "No longer needs goods (times out)" },
+    { value: "emailed", label: "Emailed them (stamps last emailed)" },
   ];
 
   function render(container) {
@@ -38,6 +39,8 @@
       candidates: null, // last [OutreachCandidate] from the API (null = not run)
       listLoading: false,
       blasting: false,
+      channel: "sms", // "sms" | "email" — email reaches the phone-unreachable
+      interpreterOnly: false, // client-side filter: unsupported-language rows
     };
     // Selected household ids, preserved across candidate re-renders.
     const selected = new Set();
@@ -110,6 +113,45 @@
       "Build list"
     );
 
+    // Channel toggle: SMS (default) or Email — the email list is exactly the
+    // households the 3-texts-3-calls rule can never reach (no usable phone,
+    // but a working email on file).
+    const channelWrap = h("div", { class: "row", id: "out-channel" });
+    function renderChannelToggle() {
+      clear(channelWrap);
+      [["sms", "💬 Text (SMS)"], ["email", "✉️ Email"]].forEach(([value, label]) => {
+        const on = state.channel === value;
+        channelWrap.append(
+          h(
+            "button",
+            {
+              type: "button",
+              class: on ? "pill pill--on" : "pill",
+              "aria-pressed": String(on),
+              style: on
+                ? { background: "var(--brand)", color: "var(--brand-ink)", borderColor: "var(--brand)" }
+                : null,
+              onclick: () => {
+                state.channel = value;
+                renderChannelToggle();
+                syncChannelUi();
+              },
+            },
+            (on ? "✓ " : "") + label
+          )
+        );
+      });
+    }
+
+    // Rebooking-only: households whose booked distro was cancelled.
+    const rebookingBox = h("input", { type: "checkbox", id: "out-rebooking" });
+    const rebookingRow = h(
+      "label",
+      { class: "row", for: "out-rebooking", style: { gap: "var(--s2)", cursor: "pointer" } },
+      rebookingBox,
+      h("span", {}, "🔁 Needs rebooking only (cancelled-distro queue)")
+    );
+
     const filtersForm = h(
       "form",
       {
@@ -120,6 +162,19 @@
         },
       },
       h("h2", { class: "card__title" }, "1 · Build outreach list"),
+      // Channel
+      h(
+        "div",
+        { class: "field" },
+        h("span", { class: "label" }, "Channel"),
+        channelWrap,
+        h(
+          "div",
+          { class: "list-item__meta" },
+          "Email reaches households with no working phone — the people texts and calls can never book."
+        )
+      ),
+      rebookingRow,
       // Request types
       h(
         "div",
@@ -211,6 +266,28 @@
       "aria-label": "Max messages",
     });
 
+    // Subject line — email blasts only; hidden in SMS mode.
+    const subjectInput = h("input", {
+      class: "input",
+      id: "out-subject",
+      type: "text",
+      autocomplete: "off",
+      placeholder: "e.g. BAM: book your distro appointment",
+      "aria-label": "Email subject",
+    });
+    const subjectField = h(
+      "div",
+      { class: "field", style: { display: "none" } },
+      h("label", { class: "label", for: "out-subject" }, "Email subject"),
+      subjectInput
+    );
+
+    function syncChannelUi() {
+      const email = state.channel === "email";
+      subjectField.style.display = email ? "" : "none";
+      sendBtn.textContent = `Send ${email ? "emails" : "to selected"} (${selected.size})`;
+    }
+
     const sendBtn = h(
       "button",
       { class: "btn btn-primary btn-block", type: "button", onclick: doBlast },
@@ -258,6 +335,7 @@
           )
         )
       ),
+      subjectField,
       h(
         "div",
         { class: "field" },
@@ -292,8 +370,10 @@
     container.append(heading, filtersForm, listResult, blastCard);
 
     renderRequestTypePills();
+    renderChannelToggle();
     renderListPlaceholder();
     updateSendButton();
+    syncChannelUi();
 
     // ---- Panel A: filter editing ----------------------------------------
 
@@ -342,6 +422,8 @@
         exclude_texted_within_days: toNonNegInt(excludeTextedInput.value, 0),
         exclude_attended_within_days: toNonNegInt(excludeAttendedInput.value, 0),
       };
+      if (state.channel === "email") filters.channel = "email";
+      if (rebookingBox.checked) filters.rebooking_only = true;
       if (customRequestTypes.size) filters.request_types = [...customRequestTypes];
       const langs = langPick.getSelected();
       if (langs.length) filters.languages = langs;
@@ -451,25 +533,67 @@
         },
       });
 
+      const shown = state.interpreterOnly ? rows.filter((c) => c.unsupported_language) : rows;
+
+      const interpreterBox = h("input", {
+        type: "checkbox",
+        id: "out-interp-only",
+        checked: state.interpreterOnly,
+        onchange: (e) => {
+          state.interpreterOnly = e.target.checked;
+          renderCandidates();
+        },
+      });
+
       const header = h(
         "div",
-        { class: "row row--between" },
-        h("h2", { class: "card__title", style: { margin: "0" } }, `${rows.length} candidate${rows.length === 1 ? "" : "s"}`),
+        { class: "row row--between", style: { flexWrap: "wrap", gap: "var(--s2)" } },
         h(
-          "label",
-          { class: "row", for: "out-select-all", style: { gap: "var(--s2)", cursor: "pointer" } },
-          selectAll,
-          h("span", { class: "label" }, "Select all")
+          "h2",
+          { class: "card__title", style: { margin: "0" } },
+          `${shown.length} candidate${shown.length === 1 ? "" : "s"}${state.interpreterOnly ? ` (of ${rows.length})` : ""}`
+        ),
+        h(
+          "span",
+          { class: "row", style: { gap: "var(--s3)", flexWrap: "wrap" } },
+          h(
+            "label",
+            { class: "row", for: "out-interp-only", style: { gap: "var(--s2)", cursor: "pointer" } },
+            interpreterBox,
+            h("span", { class: "label" }, "🌐 Interpreter needed only")
+          ),
+          h(
+            "label",
+            { class: "row", for: "out-select-all", style: { gap: "var(--s2)", cursor: "pointer" } },
+            selectAll,
+            h("span", { class: "label" }, "Select all")
+          )
         )
       );
+
+      // Cancelled-distro fallout is easy to lose in a big list — surface it.
+      const rebookCount = rows.filter((c) => c.needs_rebooking).length;
+      const rebookBanner =
+        rebookCount && !rebookingBox.checked
+          ? h(
+              "div",
+              { class: "list-item", style: { background: "var(--warn-soft)", borderColor: "var(--warn)" } },
+              h("span", { "aria-hidden": "true" }, "🔁"),
+              h(
+                "span",
+                { class: "list-item__body" },
+                `${rebookCount} ${rebookCount === 1 ? "family" : "families"} in this list had a distro cancelled and need new appointments.`
+              )
+            )
+          : null;
 
       const list = h(
         "ul",
         { class: "list" },
-        rows.map((c) => candidateRow(c))
+        shown.map((c) => candidateRow(c))
       );
 
-      listResult.append(h("div", { class: "card stack" }, header, list));
+      listResult.append(h("div", { class: "card stack" }, header, rebookBanner, list));
     }
 
     function candidateRow(c) {
@@ -496,12 +620,43 @@
         : null;
 
       const metaBits = [];
-      if (c.phone_number) metaBits.push(h("span", { class: "mono" }, c.phone_number));
-      else metaBits.push(h("span", { class: "badge badge-timeout" }, "no phone"));
+      if (state.channel === "email") {
+        if (c.email) metaBits.push(h("span", { class: "mono" }, c.email));
+        else metaBits.push(h("span", { class: "badge badge-timeout" }, "no email"));
+      } else if (c.phone_number) {
+        metaBits.push(h("span", { class: "mono" }, c.phone_number));
+      } else {
+        metaBits.push(h("span", { class: "badge badge-timeout" }, "no phone"));
+      }
       if (c.oldest_open_request_at) {
         metaBits.push(h("span", {}, `oldest ${fmtDate(c.oldest_open_request_at)}`));
       }
       if (c.last_texted) metaBits.push(h("span", {}, `texted ${fmtDate(c.last_texted)}`));
+
+      const flagBits = [];
+      if (c.preferred_language) {
+        flagBits.push(
+          h(
+            "span",
+            { class: "pill", title: "Preferred language" },
+            `★ ${window.BAM.langShort ? window.BAM.langShort(c.preferred_language) : c.preferred_language}`
+          )
+        );
+      }
+      if (c.unsupported_language) {
+        flagBits.push(
+          h(
+            "span",
+            { class: "badge badge-timeout", title: "No catalog-supported language — route to an interpreter" },
+            "🌐 interpreter"
+          )
+        );
+      }
+      if (c.needs_rebooking) {
+        flagBits.push(
+          h("span", { class: "badge badge-timeout", title: "Their distro was cancelled" }, "🔁 rebooking")
+        );
+      }
 
       const body = h(
         "label",
@@ -515,6 +670,7 @@
           { class: "list-item__meta row", style: { gap: "var(--s2)" } },
           metaBits
         ),
+        flagBits.length ? h("div", { class: "row", style: { marginTop: "var(--s1)" } }, flagBits) : null,
         typePills
       );
 
@@ -577,6 +733,28 @@
         { type: "button", class: "btn btn-primary" },
         "Book appointment"
       );
+      // Live booking-pressure hint: when a date is picked, show that day's
+      // slot cap and busiest times so schedulers stop double-booking blind.
+      const slotHint = h("div", { class: "list-item__meta" });
+      apptDate.addEventListener("change", async () => {
+        slotHint.textContent = "";
+        if (!apptDate.value) return;
+        try {
+          const usage = await api.slotUsage(apptDate.value);
+          const entries = Object.entries(usage.usage || {}).sort((a, b) => b[1] - a[1]);
+          const bits = [];
+          if (usage.slot_capacity != null) bits.push(`cap ${usage.slot_capacity}/slot`);
+          if (entries.length) {
+            bits.push(`busiest: ${entries.slice(0, 3).map(([t, n]) => `${t || "no time"} (${n})`).join(", ")}`);
+          } else {
+            bits.push("no bookings yet");
+          }
+          slotHint.textContent = bits.join(" · ");
+        } catch (_e) {
+          /* hint only */
+        }
+      });
+
       bookBtn.addEventListener("click", async () => {
         const date = apptDate.value;
         const time = apptTime.value;
@@ -586,11 +764,27 @@
         }
         bookBtn.disabled = true;
         bookBtn.textContent = "Booking…";
-        try {
-          const hh = await api.bookAppointment(c.household_id, {
+        const book = async (force) =>
+          api.bookAppointment(c.household_id, {
             appointment_date: date,
             appointment_time: time,
+            ...(force ? { force: true } : {}),
           });
+        try {
+          let hh;
+          try {
+            hh = await book(false);
+          } catch (err) {
+            // Slot at capacity: offer an explicit override instead of failing.
+            if (err && err.status === 409) {
+              if (!confirm(`${err.detail || "That slot is full."}\n\nBook anyway?`)) {
+                throw err;
+              }
+              hh = await book(true);
+            } else {
+              throw err;
+            }
+          }
           toast(`Appointment booked for ${hh.name || "household"} on ${fmtDate(hh.appointment_date)}.`, "success");
           markOutcome(wrap, `✅ Booked ${fmtDate(hh.appointment_date)}${hh.appointment_time ? " · " + hh.appointment_time : ""}`);
         } catch (err) {
@@ -620,6 +814,7 @@
             apptTime
           )
         ),
+        slotHint,
         bookBtn
       );
 
@@ -715,7 +910,7 @@
 
     function updateSendButton() {
       const n = selected.size;
-      sendBtn.textContent = `Send to selected (${n})`;
+      sendBtn.textContent = `Send ${state.channel === "email" ? "emails" : "to selected"} (${n})`;
       sendBtn.disabled = state.blasting || n === 0;
     }
 
@@ -740,6 +935,11 @@
       const payload = { household_ids };
       if (useTemplates) payload.templates = templates;
       else payload.template = template;
+      if (state.channel === "email") {
+        payload.channel = "email";
+        const subject = subjectInput.value.trim();
+        if (subject) payload.subject = subject;
+      }
       const max = parseInt(maxMessagesInput.value, 10);
       if (Number.isFinite(max) && max > 0) payload.max_messages = max;
 
@@ -803,6 +1003,7 @@
         stat("Failed", report.failed || 0),
         stat("Skipped invalid", report.skipped_invalid || 0),
         stat("Skipped no phone", report.skipped_no_phone || 0),
+        stat("Skipped no email", report.skipped_no_email || 0),
         stat("Over limit", report.not_sent_over_limit || 0)
       );
 

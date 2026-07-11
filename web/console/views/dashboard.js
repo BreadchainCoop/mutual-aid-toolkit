@@ -340,7 +340,7 @@
                 ? h(
                     "span",
                     {
-                      class: "badge badge-missed",
+                      class: "badge badge-timeout",
                       title: "Households with no catalog-supported language — needs an interpreter or translated outreach",
                     },
                     `🌐 ${r.unsupported_language} need an interpreter`

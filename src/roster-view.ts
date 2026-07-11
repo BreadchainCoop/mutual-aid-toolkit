@@ -18,10 +18,11 @@ import {
   reinstateMember,
   revokeInvite,
   revokeMember,
+  setCap,
   setRole,
   type InvitePayload,
 } from "./roster.ts";
-import type { Role } from "./schema.ts";
+import type { Role, RosterMember } from "./schema.ts";
 
 interface BamNamespace {
   h: (tag: string, attrs?: unknown, ...children: unknown[]) => HTMLElement;
@@ -232,6 +233,56 @@ export function registerRosterView(store: BamStore): void {
       return actions;
     }
 
+    // App-level capability chips (admin, on active volunteers): accident-guard
+    // grants like "can fix contacts" — enforced in the adapter, not the sync
+    // layer, and always implied for admins.
+    const CAPS: Array<{ key: string; label: string; hint: string }> = [
+      {
+        key: "contactFix",
+        label: "🛠 can fix contacts",
+        hint: "Lets this device correct household phone/email (audited, masked).",
+      },
+      {
+        key: "partnerSync",
+        label: "🔄 can run partner sync",
+        hint: "Lets this device apply partner fulfillment phone-lists.",
+      },
+    ];
+    function capChips(m: RosterMember): HTMLElement | null {
+      if (!admin || m.revokedAt || m.role !== "volunteer") return null;
+      return h(
+        "div",
+        { class: "row", style: { gap: "6px", flexWrap: "wrap" } },
+        ...CAPS.map((cap) => {
+          const on = m.caps?.[cap.key] === true;
+          return h(
+            "button",
+            {
+              type: "button",
+              class: on ? "pill pill--on" : "pill",
+              title: cap.hint,
+              "aria-pressed": String(on),
+              onclick: () => {
+                try {
+                  setCap(store.roster, store.peerId, m.peerId, cap.key, !on);
+                  toast(
+                    !on
+                      ? `${m.name}: ${cap.label.replace(/^\S+\s/, "")} granted.`
+                      : `${m.name}: grant removed.`,
+                    "success"
+                  );
+                  render(container);
+                } catch (err) {
+                  toast(err instanceof Error ? err.message : String(err), "error");
+                }
+              },
+            },
+            (on ? "✓ " : "") + cap.label
+          );
+        })
+      );
+    }
+
     // Members list.
     const members = Object.values(roster.members).sort((a, b) =>
       a.addedAt < b.addedAt ? -1 : 1
@@ -239,7 +290,7 @@ export function registerRosterView(store: BamStore): void {
     const memberRows = members.map((m) =>
       h(
         "li",
-        { class: "list-item" },
+        { class: "list-item", style: { flexWrap: "wrap" } },
         h(
           "div",
           { class: "list-item__body" },
@@ -248,7 +299,13 @@ export function registerRosterView(store: BamStore): void {
             "div",
             { class: "list-item__meta mono", style: { wordBreak: "break-all" } },
             m.peerId
-          )
+          ),
+          h(
+            "div",
+            { class: "list-item__meta" },
+            m.lastSeenAt ? `Last seen ${BAM.fmtDateTime(m.lastSeenAt)}` : "Last seen: —"
+          ),
+          capChips(m)
         ),
         h(
           "span",

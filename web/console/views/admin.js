@@ -161,6 +161,10 @@
     container.append(
       scrubCard()
     );
+
+    renderItemPoliciesCard(container);
+    renderPartnerSyncCard(container);
+    renderReferralsCard(container);
   }
 
   /* Generic job card -------------------------------------------------------- */
@@ -517,6 +521,431 @@
   /* Data access — per-device, per-domain grants (backed by BAM.access). Denying
      a domain stops that data syncing to the device. Admin-only; each toggle
      re-renders the card in place. */
+  /* Item policies — per-item cooldowns + seasonal windows ------------------ */
+
+  function renderItemPoliciesCard(parent) {
+    const card = h("div", { class: "card stack" });
+    parent.append(card);
+    card.append(
+      h("h2", { class: "card__title" }, "Cooldowns & seasons"),
+      h(
+        "p",
+        { class: "muted", style: { margin: "0" } },
+        "After a delivery, re-requests of an item wait its cooldown before re-entering outreach — a first delivery is never delayed, and the form tells people the rule. Seasonal windows (MM-DD) pause an item outside its season; \"paused\" hides it entirely."
+      )
+    );
+    const listWrap = h("div", {});
+    card.append(listWrap);
+    listWrap.append(h("div", { class: "loading" }, h("span", { class: "spinner" }), "Loading catalog…"));
+
+    Promise.all([api.catalog(), api.itemPolicies()])
+      .then(([cat, policies]) => {
+        clear(listWrap);
+        const rows = (cat.goods || []).concat(cat.social_services || []).map((t) => {
+          const p = policies[t.key] || {};
+          const cooldown = h("input", {
+            class: "input",
+            type: "number",
+            min: "0",
+            value: p.cooldown_days != null ? String(p.cooldown_days) : "",
+            placeholder: "days",
+            title: "Cooldown days after a delivery (blank = none)",
+            style: { width: "72px" },
+          });
+          const from = h("input", {
+            class: "input",
+            type: "text",
+            value: p.season_from || "",
+            placeholder: "MM-DD",
+            title: "Season start (blank = year-round)",
+            style: { width: "76px" },
+          });
+          const until = h("input", {
+            class: "input",
+            type: "text",
+            value: p.season_until || "",
+            placeholder: "MM-DD",
+            title: "Season end",
+            style: { width: "76px" },
+          });
+          const disabled = h("input", {
+            type: "checkbox",
+            checked: !!p.disabled,
+            title: "Pause this item entirely",
+          });
+          const saveBtn = h(
+            "button",
+            {
+              class: "btn btn-ghost",
+              type: "button",
+              onclick: async () => {
+                const mmdd = /^\d{2}-\d{2}$/;
+                if ((from.value.trim() && !mmdd.test(from.value.trim())) ||
+                    (until.value.trim() && !mmdd.test(until.value.trim()))) {
+                  toast("Season dates must be MM-DD (e.g. 08-01).", "info");
+                  return;
+                }
+                saveBtn.disabled = true;
+                try {
+                  await api.setItemPolicy(t.key, {
+                    cooldown_days: cooldown.value.trim() === "" ? null : Number(cooldown.value),
+                    season_from: from.value.trim() || null,
+                    season_until: until.value.trim() || null,
+                    disabled: disabled.checked,
+                  });
+                  toast(`${t.label} policy saved.`, "success");
+                } catch (err) {
+                  toast((err && err.detail) || "Could not save the policy.", "error");
+                } finally {
+                  saveBtn.disabled = false;
+                }
+              },
+            },
+            "Save"
+          );
+          return h(
+            "li",
+            { class: "list-item", style: { flexWrap: "wrap", gap: "var(--s2)" } },
+            h(
+              "div",
+              { class: "list-item__body", style: { minWidth: "140px" } },
+              h("div", { class: "list-item__label" }, t.label),
+              p.in_season === false
+                ? h("div", { class: "list-item__meta" }, "out of season now")
+                : null
+            ),
+            h(
+              "span",
+              { class: "row", style: { gap: "6px", flexWrap: "wrap" } },
+              cooldown,
+              from,
+              until,
+              h(
+                "label",
+                { class: "row", style: { gap: "4px", cursor: "pointer" } },
+                disabled,
+                h("span", { class: "muted", style: { fontSize: "13px" } }, "paused")
+              ),
+              saveBtn
+            )
+          );
+        });
+        listWrap.append(h("ul", { class: "list" }, rows));
+      })
+      .catch((err) => {
+        clear(listWrap);
+        listWrap.append(
+          h("div", { class: "empty-state" }, (err && err.detail) || "Could not load the catalog.")
+        );
+      });
+  }
+
+  /* Partner fulfillment sync ------------------------------------------------ */
+
+  function renderPartnerSyncCard(parent) {
+    const card = h("div", { class: "card stack" });
+    parent.append(card);
+
+    const partnerInput = h("input", {
+      class: "input",
+      id: "psync-partner",
+      type: "text",
+      autocomplete: "off",
+      placeholder: "e.g. MMeC",
+      list: "psync-partner-list",
+    });
+    const partnerList = h("datalist", { id: "psync-partner-list" });
+    api.partnerOrgs().then((out) => {
+      (out.partner_orgs || []).forEach((p) => partnerList.append(h("option", { value: p })));
+    }).catch(() => {});
+
+    const outcomeSelect = h(
+      "select",
+      { class: "input", id: "psync-outcome" },
+      h("option", { value: "Delivered" }, "Delivered (they fulfilled these)"),
+      h("option", { value: "Timeout" }, "Timeout (they gave up / unreachable)")
+    );
+    const goodsBox = h("input", { type: "checkbox", id: "psync-goods", checked: true });
+    const servicesBox = h("input", { type: "checkbox", id: "psync-services", checked: true });
+    const phonesInput = h("textarea", {
+      class: "input",
+      id: "psync-phones",
+      rows: "5",
+      placeholder: "One phone number per line (commas are fine too) — any formatting",
+    });
+
+    const reportRegion = h("div", {});
+    let lastDryRun = null;
+
+    function parsePhones() {
+      return phonesInput.value
+        .split(/[\n,]+/)
+        .map((s) => s.trim())
+        .filter(Boolean);
+    }
+
+    function buildBody(dryRun) {
+      return {
+        partner: partnerInput.value.trim(),
+        phones: parsePhones(),
+        outcome: outcomeSelect.value,
+        include_goods: goodsBox.checked,
+        include_services: servicesBox.checked,
+        dry_run: dryRun,
+      };
+    }
+
+    function renderReport(out, applied) {
+      clear(reportRegion);
+      const closed =
+        (out.closed_request_ids || []).length +
+        (out.closed_social_service_request_ids || []).length;
+      const parts = [
+        h(
+          "div",
+          { class: "row", style: { marginTop: "var(--s2)", flexWrap: "wrap" } },
+          h("span", { class: "pill" }, `Matched households: ${(out.matched_household_ids || []).length}`),
+          h("span", { class: "pill" }, `${applied ? "Closed" : "Would close"}: ${closed} requests`),
+          h("span", { class: "pill" }, `Unmatched phones: ${(out.unmatched_phones || []).length}`)
+        ),
+      ];
+      if ((out.unmatched_phones || []).length) {
+        parts.push(
+          h(
+            "div",
+            { class: "list-item__meta mono", style: { whiteSpace: "pre-wrap", wordBreak: "break-all" } },
+            `Unmatched: ${out.unmatched_phones.join(", ")}`
+          )
+        );
+      }
+      if (!applied) {
+        const applyBtn = h(
+          "button",
+          {
+            class: "btn btn-danger btn-block",
+            type: "button",
+            onclick: async () => {
+              applyBtn.disabled = true;
+              try {
+                const real = await api.partnerSync(buildBody(false));
+                renderReport(real, true);
+                toast("Partner sync applied — matching requests closed with an audit note.", "success");
+              } catch (err) {
+                toast((err && err.detail) || "Could not apply the sync.", "error");
+                applyBtn.disabled = false;
+              }
+            },
+          },
+          `Apply — close ${closed} requests as ${outcomeSelect.value}`
+        );
+        parts.push(applyBtn);
+      } else {
+        parts.push(
+          h("div", { class: "list-item__meta" }, "Done. Each closed request carries a “[partner sync]” note; Delivered stamps the item cooldowns.")
+        );
+      }
+      reportRegion.append(...parts);
+    }
+
+    const dryRunBtn = h(
+      "button",
+      {
+        class: "btn btn-primary",
+        type: "button",
+        onclick: async () => {
+          if (!partnerInput.value.trim()) {
+            toast("Name the partner org first.", "info");
+            partnerInput.focus();
+            return;
+          }
+          if (!parsePhones().length) {
+            toast("Paste at least one phone number.", "info");
+            phonesInput.focus();
+            return;
+          }
+          dryRunBtn.disabled = true;
+          try {
+            lastDryRun = await api.partnerSync(buildBody(true));
+            renderReport(lastDryRun, false);
+          } catch (err) {
+            toast((err && err.detail) || "Dry run failed.", "error");
+          } finally {
+            dryRunBtn.disabled = false;
+          }
+        },
+      },
+      "Dry run — preview what would close"
+    );
+
+    // Partner list inline editor.
+    const partnersEdit = h("input", {
+      class: "input",
+      id: "psync-partners-edit",
+      type: "text",
+      autocomplete: "off",
+      placeholder: "MMeC, MESH, Big Reuse",
+    });
+    api.partnerOrgs().then((out) => {
+      partnersEdit.value = (out.partner_orgs || []).join(", ");
+    }).catch(() => {});
+    const savePartnersBtn = h(
+      "button",
+      {
+        class: "btn btn-ghost",
+        type: "button",
+        onclick: async () => {
+          try {
+            await api.setPartnerOrgs({
+              partner_orgs: partnersEdit.value.split(",").map((s) => s.trim()).filter(Boolean),
+            });
+            toast("Partner list saved.", "success");
+          } catch (err) {
+            toast((err && err.detail) || "Could not save the partner list.", "error");
+          }
+        },
+      },
+      "Save list"
+    );
+
+    card.append(
+      h("h2", { class: "card__title" }, "Partner fulfillment sync"),
+      h(
+        "p",
+        { class: "muted", style: { margin: "0" } },
+        "A partner reports back the phone numbers they served (or gave up on) — paste the list, dry-run to preview, then apply. The monthly Mil Mundos ↔ BAM reconciliation as a button instead of a script."
+      ),
+      partnerList,
+      h("div", { class: "field" }, h("label", { class: "label", for: "psync-partner" }, "Partner org"), partnerInput),
+      h("div", { class: "field" }, h("label", { class: "label", for: "psync-outcome" }, "Outcome"), outcomeSelect),
+      h(
+        "div",
+        { class: "row" },
+        h("label", { class: "row", style: { gap: "4px", cursor: "pointer" } }, goodsBox, h("span", {}, "essential goods")),
+        h("label", { class: "row", style: { gap: "4px", cursor: "pointer" } }, servicesBox, h("span", {}, "social services"))
+      ),
+      h("div", { class: "field" }, h("label", { class: "label", for: "psync-phones" }, "Phone numbers"), phonesInput),
+      dryRunBtn,
+      reportRegion,
+      h("hr", { class: "divider" }),
+      h(
+        "div",
+        { class: "field" },
+        h("label", { class: "label", for: "psync-partners-edit" }, "Partner list (comma-separated)"),
+        h("div", { class: "row" }, h("div", { class: "grow" }, partnersEdit), savePartnersBtn)
+      )
+    );
+  }
+
+  /* Referral cues shown at check-in ---------------------------------------- */
+
+  function renderReferralsCard(parent) {
+    const card = h("div", { class: "card stack" });
+    parent.append(card);
+
+    const rowsWrap = h("div", { class: "stack" });
+    const rows = []; // {labelInput, urlInput, typesInput, el}
+
+    function addRow(r) {
+      const labelInput = h("input", {
+        class: "input",
+        type: "text",
+        value: (r && r.label) || "",
+        placeholder: "e.g. Invite them to scan the MMeC English-classes QR",
+        "aria-label": "Referral label",
+      });
+      const urlInput = h("input", {
+        class: "input",
+        type: "text",
+        value: (r && r.url) || "",
+        placeholder: "https://… (optional)",
+        "aria-label": "Referral link",
+      });
+      const typesInput = h("input", {
+        class: "input",
+        type: "text",
+        value: r && r.show_for_types ? r.show_for_types.join(", ") : "",
+        placeholder: "Only for types (keys, comma-separated) — blank = always",
+        "aria-label": "Show for request types",
+      });
+      const entry = { labelInput, urlInput, typesInput, el: null };
+      const removeBtn = h(
+        "button",
+        {
+          class: "btn btn-ghost",
+          type: "button",
+          "aria-label": "Remove cue",
+          onclick: () => {
+            rows.splice(rows.indexOf(entry), 1);
+            entry.el.remove();
+          },
+        },
+        "✕"
+      );
+      entry.el = h(
+        "div",
+        { class: "list-item", style: { flexWrap: "wrap", gap: "var(--s2)" } },
+        h("div", { class: "stack grow", style: { gap: "var(--s2)" } }, labelInput, urlInput, typesInput),
+        removeBtn
+      );
+      rows.push(entry);
+      rowsWrap.append(entry.el);
+    }
+
+    api.referrals()
+      .then((out) => {
+        (out.referrals || []).forEach(addRow);
+        if (!(out.referrals || []).length) addRow(null);
+      })
+      .catch(() => addRow(null));
+
+    const addBtn = h(
+      "button",
+      { class: "btn btn-ghost", type: "button", onclick: () => addRow(null) },
+      "+ Add cue"
+    );
+    const saveBtn = h(
+      "button",
+      {
+        class: "btn btn-primary",
+        type: "button",
+        onclick: async () => {
+          saveBtn.disabled = true;
+          try {
+            await api.setReferrals({
+              referrals: rows
+                .map((r) => ({
+                  label: r.labelInput.value.trim(),
+                  url: r.urlInput.value.trim() || undefined,
+                  show_for_types: r.typesInput.value
+                    .split(",")
+                    .map((s) => s.trim())
+                    .filter(Boolean),
+                }))
+                .filter((r) => r.label),
+            });
+            toast("Referral cues saved — check-in will show them.", "success");
+          } catch (err) {
+            toast((err && err.detail) || "Could not save the cues.", "error");
+          } finally {
+            saveBtn.disabled = false;
+          }
+        },
+      },
+      "Save cues"
+    );
+
+    card.append(
+      h("h2", { class: "card__title" }, "Check-in referral cues"),
+      h(
+        "p",
+        { class: "muted", style: { margin: "0" } },
+        "Reminders shown to check-in volunteers at the counter — the “while they're here, invite them to English classes” moment, so referrals stop depending on memory."
+      ),
+      rowsWrap,
+      h("div", { class: "row" }, addBtn, saveBtn)
+    );
+  }
+
   function renderDataAccessCard(parent) {
     const access = window.BAM.access;
     if (!access || !access.isAdmin || !access.isAdmin()) return;
