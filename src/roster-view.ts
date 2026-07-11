@@ -147,6 +147,24 @@ export function registerRosterView(store: BamStore): void {
         netEndpoint
           ? `Sync relay: ${netEndpoint}`
           : "Sync relay: none — this device is offline-only. Add one when you invite another device (below)."
+      ),
+      // Log out: forget this device's saved connection and return to the
+      // start screen (create or join another org). Honest edges: enrollment
+      // stays on the roster until an admin revokes it, and the org's local
+      // copy stays in this browser until you rejoin or clear site data.
+      h(
+        "div",
+        { class: "row", style: { marginTop: "var(--s2)" } },
+        confirmBtn("logout:me", "Log out of this org", "Confirm — log out", "btn-danger", () => {
+          localStorage.removeItem("bam-local-first-config");
+          location.hash = "";
+          location.reload();
+        })
+      ),
+      h(
+        "div",
+        { class: "list-item__meta" },
+        "Logging out returns this device to the start screen so you can create or join another org. You stay on this team's roster until an admin revokes you, and the data already synced here stays in this browser until you rejoin or clear site data."
       )
     );
 
