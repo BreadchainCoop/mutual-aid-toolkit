@@ -203,6 +203,15 @@ export interface OrgConfig {
   referrals?: Array<{ label: string; url?: string; showForTypes?: string[] }>;
   /** Partner orgs for the status × partner model + fulfillment sync. */
   partnerOrgs?: string[];
+  /** Encrypted-checkpoint history. CIDs/sizes only — the ciphertext lives on
+   * IPFS/disk and is useless without the passphrase, which is NEVER stored. */
+  checkpoints?: Array<{
+    at: string; // ISO datetime
+    by: string; // device name or peer prefix
+    size: number; // ciphertext bytes
+    cid?: string; // present when pinned to IPFS
+    note?: string;
+  }>;
 }
 
 export interface BamDoc {

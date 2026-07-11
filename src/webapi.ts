@@ -69,6 +69,7 @@ import {
 import { partnerSyncByPhone, setPartnerOrg } from "./domain/partners.ts";
 import { impactReport, waitlistReport } from "./domain/reporting.ts";
 import { seedDemoData } from "./domain/seed.ts";
+import { createCheckpoint, pinToIpfs } from "./checkpoint.ts";
 import {
   ShiftFullError,
   claimShiftSlot,
@@ -761,6 +762,60 @@ export function makeWebApi(store: BamStore) {
           });
       });
       return { ok: true };
+    },
+
+    // Encrypted checkpoints (backups) ----------------------------------------
+    async createCheckpoint(
+      body: { passphrase: string; pin?: boolean; pinata_jwt?: string; note?: string }
+    ) {
+      requireAdmin("create backups");
+      const { bytes, header } = await createCheckpoint(store, body.passphrase);
+      let cid: string | undefined;
+      let gatewayUrl: string | undefined;
+      if (body.pin) {
+        if (!body.pinata_jwt) {
+          throw new ApiError(400, "Add your pinning-service key (Pinata JWT) to pin to IPFS.");
+        }
+        const name = `${header.org.replace(/\s+/g, "-")}-${header.createdAt.slice(0, 10)}.matckpt`;
+        const pinned = await pinToIpfs(bytes, { pinataJwt: body.pinata_jwt, name });
+        cid = pinned.cid;
+        gatewayUrl = pinned.gatewayUrl;
+      }
+      const by = me().name || store.peerId.slice(0, 8);
+      store.base.change((d) => {
+        if (!d.config) d.config = { name: d.meta.org };
+        if (!d.config.checkpoints) d.config.checkpoints = [];
+        const entry: NonNullable<typeof d.config.checkpoints>[number] = {
+          at: header.createdAt,
+          by,
+          size: bytes.length,
+        };
+        if (cid) entry.cid = cid;
+        if (body.note && body.note.trim()) entry.note = body.note.trim();
+        d.config.checkpoints.push(entry);
+      });
+      return {
+        bytes, // Uint8Array — same-process adapter, the view downloads it
+        size: bytes.length,
+        created_at: header.createdAt,
+        org: header.org,
+        cid: cid ?? null,
+        gateway_url: gatewayUrl ?? null,
+      };
+    },
+    async checkpointHistory() {
+      return {
+        checkpoints: (doc().config?.checkpoints ?? [])
+          .slice()
+          .sort((a, b) => (a.at < b.at ? 1 : -1))
+          .map((c) => ({
+            at: c.at,
+            by: c.by,
+            size: c.size,
+            cid: c.cid ?? null,
+            note: c.note ?? null,
+          })),
+      };
     },
 
     // Demo data ---------------------------------------------------------------

@@ -140,14 +140,12 @@ describe("store bootstrap", () => {
 
 describe("per-device view grants", () => {
   it("setViewGrant denies and re-allows; admins immune; invites carry presets", async () => {
-    const { makeStore } = await import("./helpers-roster.ts").catch(() => ({ makeStore: null }));
     // Inline setup mirroring the file's existing patterns:
     const { MemorySigner } = await import("@automerge/automerge-subduction");
     const { openStore } = await import("../src/store.ts");
     const {
       addMember, createInvite, redeemInvite, setViewGrant, viewAllowed,
     } = await import("../src/roster.ts");
-    void makeStore;
     const store = await openStore({
       signer: MemorySigner.generate(),
       endpoints: [],

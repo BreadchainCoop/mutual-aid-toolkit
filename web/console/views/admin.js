@@ -249,6 +249,226 @@
     );
     renderPartnerSyncCard(partnersBody);
     renderReferralsCard(partnersBody);
+
+    const backupsBody = section(
+      "💾",
+      "Backups",
+      "Encrypted checkpoints of the whole org — download them, or pin them to IPFS."
+    );
+    renderBackupsCard(backupsBody);
+  }
+
+  /* Encrypted checkpoints ---------------------------------------------------- */
+
+  function renderBackupsCard(parent) {
+    const card = h("div", { class: "card stack" });
+    parent.append(card);
+
+    const passInput = h("input", {
+      class: "input",
+      type: "password",
+      id: "ckpt-pass",
+      autocomplete: "new-password",
+      placeholder: "At least 8 characters",
+    });
+    const passConfirm = h("input", {
+      class: "input",
+      type: "password",
+      id: "ckpt-pass2",
+      autocomplete: "new-password",
+      placeholder: "Same passphrase again",
+    });
+    const noteInput = h("input", {
+      class: "input",
+      type: "text",
+      id: "ckpt-note",
+      autocomplete: "off",
+      placeholder: "e.g. before the big migration (optional)",
+    });
+    const pinBox = h("input", { type: "checkbox", id: "ckpt-pin" });
+    const jwtInput = h("input", {
+      class: "input",
+      type: "password",
+      id: "ckpt-jwt",
+      autocomplete: "off",
+      placeholder: "Pinata JWT — stays on this device only",
+    });
+    try {
+      jwtInput.value = localStorage.getItem("mat-pinata-jwt") || "";
+      pinBox.checked = !!jwtInput.value;
+    } catch (_e) { /* storage may be unavailable */ }
+
+    const resultRegion = h("div", {});
+    const historyRegion = h("div", {});
+
+    const createBtn = h(
+      "button",
+      {
+        class: "btn btn-primary btn-block",
+        type: "button",
+        onclick: async () => {
+          const pass = passInput.value;
+          if (pass.length < 8) {
+            toast("Pick a passphrase of at least 8 characters.", "info");
+            passInput.focus();
+            return;
+          }
+          if (pass !== passConfirm.value) {
+            toast("The passphrases don't match.", "info");
+            passConfirm.focus();
+            return;
+          }
+          if (pinBox.checked && !jwtInput.value.trim()) {
+            toast("Add your Pinata JWT to pin, or untick pinning.", "info");
+            jwtInput.focus();
+            return;
+          }
+          createBtn.disabled = true;
+          createBtn.textContent = "Encrypting…";
+          try {
+            try {
+              if (jwtInput.value.trim()) localStorage.setItem("mat-pinata-jwt", jwtInput.value.trim());
+            } catch (_e) { /* fine */ }
+            const out = await api.createCheckpoint({
+              passphrase: pass,
+              pin: pinBox.checked,
+              pinata_jwt: jwtInput.value.trim() || undefined,
+              note: noteInput.value.trim() || undefined,
+            });
+            // Always hand the admin the file too — IPFS is a copy, not the copy.
+            const blob = new Blob([out.bytes], { type: "application/octet-stream" });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = `${(out.org || "org").replace(/\s+/g, "-")}-${String(out.created_at).slice(0, 10)}.matckpt`;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            setTimeout(() => URL.revokeObjectURL(url), 5000);
+            clear(resultRegion);
+            resultRegion.append(
+              h(
+                "div",
+                { class: "list-item", style: { background: "var(--ok-soft)", borderColor: "var(--ok)" } },
+                h("span", { "aria-hidden": "true" }, "✅"),
+                h(
+                  "div",
+                  { class: "list-item__body" },
+                  h(
+                    "div",
+                    { class: "list-item__label" },
+                    `Checkpoint created (${Math.round(out.size / 1024)} KB) — file downloaded${out.cid ? ", pinned to IPFS" : ""}.`
+                  ),
+                  out.cid
+                    ? h("div", { class: "list-item__meta mono", style: { wordBreak: "break-all" } }, `CID: ${out.cid}`)
+                    : null,
+                  h(
+                    "div",
+                    { class: "list-item__meta" },
+                    "Write the passphrase down somewhere safe — without it this backup is unreadable, by design. Restore from the app's start screen (log out → “Restore from a backup”)."
+                  )
+                )
+              )
+            );
+            passInput.value = "";
+            passConfirm.value = "";
+            noteInput.value = "";
+            renderHistory();
+            toast("Encrypted checkpoint created.", "success");
+          } catch (err) {
+            toast((err && err.detail) || (err && err.message) || "Checkpoint failed.", "error");
+          } finally {
+            createBtn.disabled = false;
+            createBtn.textContent = "Create encrypted checkpoint";
+          }
+        },
+      },
+      "Create encrypted checkpoint"
+    );
+
+    async function renderHistory() {
+      clear(historyRegion);
+      try {
+        const out = await api.checkpointHistory();
+        const rows = out.checkpoints || [];
+        if (!rows.length) return;
+        historyRegion.append(
+          h("div", { class: "section-title" }, `Past checkpoints (${rows.length})`),
+          h(
+            "ul",
+            { class: "list" },
+            rows.map((c) =>
+              h(
+                "li",
+                { class: "list-item", style: { flexWrap: "wrap" } },
+                h(
+                  "div",
+                  { class: "list-item__body" },
+                  h(
+                    "div",
+                    { class: "list-item__label" },
+                    `${window.BAM.fmtDateTime(c.at)} — ${Math.round(c.size / 1024)} KB${c.note ? ` · ${c.note}` : ""}`
+                  ),
+                  h("div", { class: "list-item__meta" }, `by ${c.by}${c.cid ? "" : " · downloaded file only (not pinned)"}`),
+                  c.cid
+                    ? h("div", { class: "list-item__meta mono", style: { wordBreak: "break-all" } }, c.cid)
+                    : null
+                ),
+                c.cid
+                  ? h(
+                      "button",
+                      {
+                        class: "btn btn-ghost",
+                        type: "button",
+                        onclick: () => {
+                          navigator.clipboard
+                            .writeText(c.cid)
+                            .then(() => toast("CID copied.", "success"), () => {});
+                        },
+                      },
+                      "Copy CID"
+                    )
+                  : null
+              )
+            )
+          )
+        );
+      } catch (_e) {
+        /* history is best-effort */
+      }
+    }
+
+    card.append(
+      h("h2", { class: "card__title" }, "Encrypted checkpoint"),
+      h(
+        "p",
+        { class: "muted", style: { margin: "0" } },
+        "Snapshots every org document, locks it with your passphrase (AES-256, on this device — the passphrase is never stored or sent anywhere), and downloads the file. Optionally pin the encrypted file to IPFS so a copy survives lost laptops. Without the passphrase the file is unreadable — including by us, the pinning service, and anyone who finds the CID."
+      ),
+      h("div", { class: "field" }, h("label", { class: "label", for: "ckpt-pass" }, "Passphrase"), passInput),
+      h("div", { class: "field" }, h("label", { class: "label", for: "ckpt-pass2" }, "Confirm passphrase"), passConfirm),
+      h("div", { class: "field" }, h("label", { class: "label", for: "ckpt-note" }, "Note"), noteInput),
+      h(
+        "label",
+        { class: "list-item list-item--selectable", for: "ckpt-pin", style: { cursor: "pointer" } },
+        pinBox,
+        h(
+          "div",
+          { class: "list-item__body" },
+          h("div", { class: "list-item__label" }, "Also pin to IPFS"),
+          h(
+            "div",
+            { class: "list-item__meta" },
+            "Uploads the encrypted file to your pinning service and records the CID in the org's history."
+          )
+        )
+      ),
+      h("div", { class: "field" }, h("label", { class: "label", for: "ckpt-jwt" }, "Pinning key"), jwtInput),
+      createBtn,
+      resultRegion,
+      historyRegion
+    );
+    void renderHistory();
   }
 
   /* Generic job card -------------------------------------------------------- */

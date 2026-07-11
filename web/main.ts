@@ -9,8 +9,12 @@
  */
 
 import { WebCryptoSigner } from "@automerge/automerge-subduction";
+import { Repo, initSubduction } from "@automerge/automerge-repo";
 import { IndexedDBStorageAdapter } from "@automerge/automerge-repo-storage-indexeddb";
 import { DEFAULT_SYNC_ENDPOINT, learnedRelayPeers, openStore, type BamStore } from "../src/store.ts";
+import { decryptCheckpoint, fetchFromIpfs, importCheckpoint } from "../src/checkpoint.ts";
+import { rosterPolicy } from "../src/roster.ts";
+import type { RosterDoc } from "../src/schema.ts";
 import {
   hasCap,
   isAdmin,
@@ -272,7 +276,77 @@ function firstRunScreen(root: HTMLElement, peerId: string): Promise<AppConfig> {
     keyRow.append(keyCode, copyBtn);
     keynote.append(keyRow);
 
-    wrap.append(hero, createCard, joinCard, keynote);
+    // Restore from an encrypted checkpoint (Admin → Backups made it): a file
+    // or an IPFS CID + the passphrase. Recovers the whole org onto this
+    // device; teammates rejoin via a fresh roster link afterwards.
+    const restoreFile = el("input", { class: "input", type: "file", accept: ".matckpt" }) as HTMLInputElement;
+    const restoreCid = el("input", { class: "input", placeholder: "…or paste an IPFS CID" }) as HTMLInputElement;
+    const restorePass = el("input", {
+      class: "input",
+      type: "password",
+      placeholder: "Backup passphrase",
+      autocomplete: "off",
+    }) as HTMLInputElement;
+    const restoreMsg = el("div", { class: "list-item__meta", style: "color:var(--danger)" });
+    const restoreBtn = el("button", { class: "btn btn-secondary btn-block" }, "Restore this org") as HTMLButtonElement;
+    restoreBtn.onclick = async () => {
+      restoreMsg.textContent = "";
+      const file = restoreFile.files?.[0];
+      const cid = restoreCid.value.trim();
+      if (!file && !cid) {
+        restoreMsg.textContent = "Pick the backup file, or paste its IPFS CID.";
+        return;
+      }
+      if (!restorePass.value) {
+        restoreMsg.textContent = "The backup can't be opened without its passphrase.";
+        return;
+      }
+      restoreBtn.disabled = true;
+      restoreBtn.textContent = "Restoring…";
+      try {
+        const bytes = file
+          ? new Uint8Array(await file.arrayBuffer())
+          : await fetchFromIpfs(cid);
+        const { docs } = await decryptCheckpoint(bytes, restorePass.value);
+        await initSubduction();
+        const box: { roster?: { doc(): RosterDoc | undefined } } = {};
+        const repo = new Repo({
+          signer: (await WebCryptoSigner.setup()) as never,
+          storage: new IndexedDBStorageAdapter("bam-local-first"),
+          subductionPolicy: rosterPolicy(() => box.roster?.doc(), { alwaysAllow: [peerId] }) as never,
+          subductionWebsocketEndpoints: [],
+        });
+        const { rosterUrl } = importCheckpoint(repo, peerId, docs, "restored device");
+        // Let the storage subsystem persist the imported docs before reload.
+        const flushable = repo as unknown as { flush?: () => Promise<void> };
+        if (typeof flushable.flush === "function") await flushable.flush();
+        await new Promise((r) => setTimeout(r, 400));
+        saveConfig({ mode: "join", rosterUrl, endpoint: DEFAULT_SYNC_ENDPOINT });
+        location.reload();
+      } catch (err) {
+        restoreMsg.textContent = err instanceof Error ? err.message : String(err);
+        restoreBtn.disabled = false;
+        restoreBtn.textContent = "Restore this org";
+      }
+    };
+    const restoreDetails = el("details", { class: "advanced" });
+    restoreDetails.append(
+      el("summary", {}, "Restore from a backup"),
+      el(
+        "p",
+        { class: "muted", style: "margin:8px 0 0;font-size:13px" },
+        "Made an encrypted checkpoint in Admin → Backups? Bring the whole org back with the file (or its IPFS CID) and the passphrase."
+      ),
+      field("Backup file", restoreFile),
+      field("IPFS CID", restoreCid),
+      field("Passphrase", restorePass),
+      restoreBtn,
+      restoreMsg
+    );
+    const restoreCard = el("div", { class: "card stack" });
+    restoreCard.append(restoreDetails);
+
+    wrap.append(hero, createCard, joinCard, restoreCard, keynote);
     root.append(wrap);
   });
 }
