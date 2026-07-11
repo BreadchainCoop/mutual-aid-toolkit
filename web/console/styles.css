@@ -275,6 +275,9 @@ body {
 
 #app-main {
   display: block;
+  /* width:100% matters: as a grid item with auto margins, this box would
+     otherwise shrink-to-fit its content and every view rendered narrow. */
+  width: 100%;
   max-width: var(--content-max);
   margin: 0 auto;
   padding: var(--s4) var(--s4) calc(var(--nav-h) + var(--s6));
@@ -1400,4 +1403,104 @@ details.advanced[open] > summary::before {
 .grid__detail-body .btn {
   justify-self: start;
   align-self: end;
+}
+
+/* Responsive pass ------------------------------------------------------------
+   Desktop: data-heavy views get room to breathe (the 720px measure is for
+   FORMS, not grids); mobile: grids keep their row gutter while scrolling,
+   dense admin rows reflow instead of overflowing. */
+
+@media (min-width: 860px) {
+  /* Wide views: tables, boards, dashboards, admin. Forms (check-in, intake)
+     keep the readable default measure. */
+  #app-main[data-view="home"],
+  #app-main[data-view="appointments"],
+  #app-main[data-view="lookup"],
+  #app-main[data-view="furniture"],
+  #app-main[data-view="services"],
+  #app-main[data-view="outreach"],
+  #app-main[data-view="distros"],
+  #app-main[data-view="shifts"],
+  #app-main[data-view="dashboard"],
+  #app-main[data-view="data"],
+  #app-main[data-view="admin"],
+  #app-main[data-view="roster"] {
+    max-width: 1120px;
+  }
+
+  /* Wide screens fit the whole grid — let it use the room. */
+  .grid-wrap {
+    max-height: calc(100vh - 320px);
+  }
+
+  /* Home: give the task cards a little more presence on big screens. */
+  .taskcard__icon {
+    font-size: 34px;
+  }
+}
+
+/* Data grid: the row-number gutter stays put while the table scrolls
+   sideways, so you never lose your place (mobile especially). */
+.grid th.grid__rownum,
+.grid td.grid__rownum {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+}
+
+.grid th.grid__rownum {
+  z-index: 3; /* above both the sticky header row and the body gutter */
+}
+
+@media (max-width: 640px) {
+  /* Admin policy rows: name gets its own line; the header row (which no
+     longer lines up once reflowed) hides — the inputs' placeholders carry
+     the meaning ("days", "MM-DD"). */
+  .policy-row {
+    grid-template-columns: 74px 78px 78px 32px 1fr;
+    border-bottom: 1px solid var(--border);
+    padding: var(--s2) 0;
+  }
+  .policy-row__name {
+    grid-column: 1 / -1;
+  }
+  .policy-row--head {
+    display: none;
+  }
+
+  /* View headings a notch smaller so long titles don't wrap awkwardly. */
+  .view-heading h1 {
+    font-size: 22px;
+  }
+
+  /* Pipeline: smaller steps, arrows hidden — the order reads left-to-right
+     without them and the row stops needing a scroll on most phones. */
+  .pipe__step {
+    min-width: 64px;
+    padding: var(--s1);
+  }
+  .pipe__arrow {
+    display: none;
+  }
+  .pipe__icon {
+    font-size: 16px;
+  }
+  .pipe__label {
+    font-size: 11.5px;
+  }
+  .pipe__sub {
+    font-size: 10.5px;
+  }
+
+  /* Expanded record detail: single column reads better on phones. */
+  .grid__detail-body {
+    grid-template-columns: 1fr;
+  }
+
+  /* Shift calendar: slightly tighter cells so a month fits without squish. */
+  .cal__day {
+    min-height: 38px;
+    font-size: 12px;
+    padding: 3px 4px;
+  }
 }

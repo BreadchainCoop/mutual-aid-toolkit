@@ -246,6 +246,9 @@
     }
     setActiveNav(name);
     setBarView(view ? view.title : "");
+    // Views opt into layout via CSS: data-heavy views widen on desktop while
+    // forms stay at a readable measure (see styles.css "responsive pass").
+    main.dataset.view = name;
 
     BAM.clear(main);
     if (!view) {
