@@ -5,7 +5,23 @@ person by person, which kinds of data each device on your team can see — so a
 volunteer who only needs to help with one thing isn't also holding the rest of
 your community's records.
 
-This lives on the **Admin** screen, in the new **Data access** card.
+There are **two tiers**, and it matters which one you're using:
+
+1. **What a device can open** (Volunteers → each member's "Can open" chips,
+   and the checkboxes on a QR invite): per-device control over every optional
+   screen and table — Appointments, Outreach, Furniture, Social services,
+   Distros, Shifts, Dashboard, Data. A denied view disappears from that
+   device's menu **and its app refuses to serve that table**. This is total
+   granularity, applied instantly, but it's an *app-level* control: the
+   underlying data may still sync to the device.
+2. **What a device receives at all** (Admin → Data access card): sync-level
+   denial. The document for that domain is never sent to the device. This is
+   the hard boundary — today it covers **Distros & shifts**, with more domains
+   as tables are split into their own documents.
+
+Use tier 1 for everyday role-scoping ("the check-in crew doesn't need the
+furniture waitlist"); use tier 2 when a device shouldn't *hold* the data at
+all.
 
 ## Data, split into domains
 

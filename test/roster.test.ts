@@ -137,3 +137,80 @@ describe("store bootstrap", () => {
     expect(store.base.doc()!.meta.org).toBe("Org X");
   });
 });
+
+describe("per-device view grants", () => {
+  it("setViewGrant denies and re-allows; admins immune; invites carry presets", async () => {
+    const { makeStore } = await import("./helpers-roster.ts").catch(() => ({ makeStore: null }));
+    // Inline setup mirroring the file's existing patterns:
+    const { MemorySigner } = await import("@automerge/automerge-subduction");
+    const { openStore } = await import("../src/store.ts");
+    const {
+      addMember, createInvite, redeemInvite, setViewGrant, viewAllowed,
+    } = await import("../src/roster.ts");
+    void makeStore;
+    const store = await openStore({
+      signer: MemorySigner.generate(),
+      endpoints: [],
+      createOrg: "Grants Test",
+      deviceName: "admin device",
+    });
+    const admin = store.peerId;
+    const vol = "ab".repeat(32);
+    addMember(store.roster, admin, { peerId: vol, name: "Vol", role: "volunteer" });
+
+    // Default: allowed. Deny → false. Re-allow → true.
+    expect(viewAllowed(store.roster.doc(), vol, "furniture")).toBe(true);
+    setViewGrant(store.roster, admin, vol, "furniture", false);
+    setViewGrant(store.roster, admin, vol, "services", false);
+    expect(viewAllowed(store.roster.doc(), vol, "furniture")).toBe(false);
+    expect(viewAllowed(store.roster.doc(), vol, "services")).toBe(false);
+    expect(viewAllowed(store.roster.doc(), vol, "outreach")).toBe(true);
+    setViewGrant(store.roster, admin, vol, "furniture", true);
+    expect(viewAllowed(store.roster.doc(), vol, "furniture")).toBe(true);
+
+    // Admins always see everything, and can't be denied.
+    expect(viewAllowed(store.roster.doc(), admin, "services")).toBe(true);
+    expect(() => setViewGrant(store.roster, admin, admin, "services", false)).toThrow();
+
+    // Invite presets land on redemption.
+    const { invite, secret } = createInvite(store.roster, admin, {
+      name: "limited helpers",
+      viewGrants: { furniture: false, data: false },
+      caps: { contactFix: true },
+    });
+    const joiner = "cd".repeat(32);
+    redeemInvite(store.roster, joiner, { inviteId: invite.id, secret, deviceName: "phone" });
+    expect(viewAllowed(store.roster.doc(), joiner, "furniture")).toBe(false);
+    expect(viewAllowed(store.roster.doc(), joiner, "data")).toBe(false);
+    expect(viewAllowed(store.roster.doc(), joiner, "outreach")).toBe(true);
+    expect(store.roster.doc()!.members[joiner]!.caps?.contactFix).toBe(true);
+  });
+
+  it("adapter refuses denied tables on the denied device", async () => {
+    const { MemorySigner } = await import("@automerge/automerge-subduction");
+    const { openStore } = await import("../src/store.ts");
+    const { addMember, setViewGrant } = await import("../src/roster.ts");
+    const { makeWebApi } = await import("../src/webapi.ts");
+    const store = await openStore({
+      signer: MemorySigner.generate(),
+      endpoints: [],
+      createOrg: "Guard Test",
+      deviceName: "admin device",
+    });
+    const vol = "ef".repeat(32);
+    addMember(store.roster, store.peerId, { peerId: vol, name: "Vol", role: "volunteer" });
+    setViewGrant(store.roster, store.peerId, vol, "services", false);
+    setViewGrant(store.roster, store.peerId, vol, "furniture", false);
+
+    // Same handles, viewed AS the volunteer device.
+    const volApi = makeWebApi({ ...store, peerId: vol });
+    await expect(volApi.browseServices({})).rejects.toMatchObject({ status: 403 });
+    await expect(volApi.browseRequests({ category: "furniture" })).rejects.toMatchObject({ status: 403 });
+    await expect(volApi.browseRequests({})).resolves.toBeTruthy(); // non-furniture untouched
+    await expect(volApi.appointments()).resolves.toBeTruthy(); // not denied
+
+    // The admin device is untouched.
+    const adminApi = makeWebApi(store);
+    await expect(adminApi.browseServices({})).resolves.toBeTruthy();
+  });
+});

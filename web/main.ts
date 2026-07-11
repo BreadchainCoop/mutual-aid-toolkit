@@ -19,9 +19,12 @@ import {
   revokeMember,
   setCap,
   setDomainGrant,
+  setViewGrant,
   touchLastSeen,
+  viewAllowed,
   type InvitePayload,
 } from "../src/roster.ts";
+import { DEVICE_VIEWS } from "../src/schema.ts";
 import { makeWebApi } from "../src/webapi.ts";
 import { registerRosterView } from "../src/roster-view.ts";
 import { registerSettingsView } from "../src/settings-view.ts";
@@ -553,8 +556,25 @@ async function boot(): Promise<void> {
     setCap: (peerId: string, cap: string, on: boolean) =>
       setCap(store.roster, store.peerId, peerId, cap, on),
     hasCap: (cap: string) => hasCap(store.roster.doc(), store.peerId, cap),
+    // Per-device view grants: which optional screens/tables a device's app
+    // shows and serves (app-level tier; dataGrants is the sync-level tier).
+    deviceViews: DEVICE_VIEWS.map((v) => ({ ...v })),
+    viewGrantsFor: (peerId: string) =>
+      ({ ...(store.roster.doc()?.members[peerId]?.viewGrants ?? {}) }),
+    setViewGrant: (peerId: string, view: string, allowed: boolean) =>
+      setViewGrant(store.roster, store.peerId, peerId, view, allowed),
     onChange: (cb: () => void) => store.roster.on("change", cb),
   };
+  // The router consults this per-device map on top of the org's feature
+  // toggles — a denied view disappears from the nav and won't render.
+  const myViewDenials = (): Record<string, boolean> => {
+    const denials: Record<string, boolean> = {};
+    for (const { view } of DEVICE_VIEWS) {
+      if (!viewAllowed(store.roster.doc(), store.peerId, view)) denials[view] = false;
+    }
+    return denials;
+  };
+  w.BAM.deviceViewGrants = myViewDenials();
   // Presence: stamp this device's lastSeenAt (throttled inside touchLastSeen)
   // so admins can run access-recert sweeps against real activity.
   try {
@@ -576,10 +596,20 @@ async function boot(): Promise<void> {
 
   // If THIS device's role changes (promoted/demoted by an admin elsewhere),
   // reload so the nav matches the new role. Roster changes are frequent
-  // (every join touches the doc) — only react when our own role flips.
+  // (every join touches the doc) — only react when our own role flips, or
+  // when our own view grants change (admin granted/denied a screen live).
+  let viewGrantsAtBoot = JSON.stringify(w.BAM.deviceViewGrants);
   store.roster.on("change", () => {
     if (isAdmin(store.roster.doc(), store.peerId) !== adminAtBoot) {
       location.reload();
+      return;
+    }
+    const next = myViewDenials();
+    const serialized = JSON.stringify(next);
+    if (serialized !== viewGrantsAtBoot) {
+      viewGrantsAtBoot = serialized;
+      w.BAM.deviceViewGrants = next;
+      void (w.BAM as { refreshChrome?: () => Promise<void> }).refreshChrome?.();
     }
   });
 

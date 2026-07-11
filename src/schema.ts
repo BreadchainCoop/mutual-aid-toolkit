@@ -282,6 +282,11 @@ export interface RosterMember {
   /** App-level capability grants (accident guards enforced in the adapter),
    * e.g. { contactFix: true } lets a trusted volunteer edit phone/email. */
   caps?: { [cap: string]: boolean };
+  /** Per-device VIEW grants: which optional screens/tables this device's app
+   * shows and serves. Missing/true = allowed, false = hidden AND refused by
+   * the adapter. Weaker than dataGrants (the doc still syncs — see
+   * docs/data-access.md for the two tiers); admins are always allowed. */
+  viewGrants?: { [view: string]: boolean };
   /** Self-stamped by the device at boot — drives access-recert sweeps. */
   lastSeenAt?: string; // ISO datetime
 }
@@ -308,8 +313,10 @@ export interface RosterInvite {
   /** Permission presets applied to everyone who joins with this invite:
    * capability grants (e.g. { contactFix: true }) … */
   caps?: { [cap: string]: boolean };
-  /** …and data-domain grants (false = denied, e.g. { distros: false }). */
+  /** …data-domain grants (false = denied, e.g. { distros: false }) … */
   dataGrants?: { [domainKey: string]: boolean };
+  /** …and per-view grants (false = that screen/table hidden + refused). */
+  viewGrants?: { [view: string]: boolean };
   revokedAt?: string;
   revokedBy?: string;
 }
@@ -374,6 +381,22 @@ export function emptyDistrosDoc(org: string, now: string): DistrosDoc {
     shiftSlots: {},
   };
 }
+
+/**
+ * The optional console views an admin can grant/deny PER DEVICE (core views —
+ * home, check-in, intake, look up, volunteers — are always on). Single source
+ * of truth for the Volunteers UI, invite presets, and the adapter guards.
+ */
+export const DEVICE_VIEWS: Array<{ view: string; label: string }> = [
+  { view: "appointments", label: "Appointments" },
+  { view: "outreach", label: "Outreach" },
+  { view: "furniture", label: "Furniture" },
+  { view: "services", label: "Social services" },
+  { view: "distros", label: "Distros" },
+  { view: "shifts", label: "Shifts" },
+  { view: "dashboard", label: "Dashboard" },
+  { view: "data", label: "Data tables" },
+];
 
 const ID_ALPHABET = "0123456789abcdefghjkmnpqrstvwxyz";
 

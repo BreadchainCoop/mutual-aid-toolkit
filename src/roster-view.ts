@@ -20,10 +20,12 @@ import {
   revokeMember,
   setCap,
   setRole,
+  setViewGrant,
   updateOwnProfile,
   type InvitePayload,
 } from "./roster.ts";
 import { LANGUAGES } from "./domain/catalog.ts";
+import { DEVICE_VIEWS } from "./schema.ts";
 import type { Role, RosterMember, VolunteerProfile } from "./schema.ts";
 
 const AVAILABILITY = ["Weekday mornings", "Weekday afternoons", "Weekday evenings", "Weekends"];
@@ -293,6 +295,52 @@ export function registerRosterView(store: BamStore): void {
         hint: "Lets this device apply partner fulfillment phone-lists.",
       },
     ];
+    // Per-device VIEW grants — total granularity over which screens/tables a
+    // volunteer's device shows and serves. Green chip = can open; tap to
+    // toggle. (App-level tier: the device's app hides AND refuses the table;
+    // the sync-level tier is the Data access card in Admin.)
+    function viewChips(m: RosterMember): HTMLElement | null {
+      if (!admin || m.revokedAt || m.role !== "volunteer") return null;
+      return h(
+        "div",
+        { class: "stack", style: { gap: "4px", marginTop: "var(--s1)" } },
+        h("div", { class: "list-item__meta" }, "Can open:"),
+        h(
+          "div",
+          { class: "row", style: { gap: "6px", flexWrap: "wrap" } },
+          ...DEVICE_VIEWS.map(({ view, label }) => {
+            const on = m.viewGrants?.[view] !== false;
+            return h(
+              "button",
+              {
+                type: "button",
+                class: on ? "langchip langchip--on" : "langchip",
+                title: on
+                  ? `${label}: this device can open it — tap to take it away`
+                  : `${label}: hidden and refused on this device — tap to allow`,
+                "aria-pressed": String(on),
+                onclick: () => {
+                  try {
+                    setViewGrant(store.roster, store.peerId, m.peerId, view, !on);
+                    toast(
+                      !on
+                        ? `${m.name} can open ${label} again.`
+                        : `${label} is now hidden on ${m.name}'s device.`,
+                      "success"
+                    );
+                    render(container);
+                  } catch (err) {
+                    toast(err instanceof Error ? err.message : String(err), "error");
+                  }
+                },
+              },
+              (on ? "✓ " : "✕ ") + label
+            );
+          })
+        )
+      );
+    }
+
     function capChips(m: RosterMember): HTMLElement | null {
       if (!admin || m.revokedAt || m.role !== "volunteer") return null;
       return h(
@@ -353,6 +401,7 @@ export function registerRosterView(store: BamStore): void {
           m.profile && profileSummary(m.profile)
             ? h("div", { class: "list-item__meta" }, profileSummary(m.profile))
             : null,
+          viewChips(m),
           capChips(m)
         ),
         h(
@@ -469,11 +518,39 @@ export function registerRosterView(store: BamStore): void {
           h("div", { class: "list-item__meta" }, hint)
         )
       );
+    // Per-view invite presets: whoever scans arrives able to open exactly
+    // these screens/tables — total granularity, zero follow-up grants.
+    const inviteViewBoxes = new Map<string, HTMLInputElement>();
+    const inviteViewGrid = h(
+      "div",
+      { class: "row", style: { gap: "var(--s2)", flexWrap: "wrap" } },
+      DEVICE_VIEWS.map(({ view, label }) => {
+        const box = h("input", { type: "checkbox", id: `invite-view-${view}`, checked: true }) as HTMLInputElement;
+        inviteViewBoxes.set(view, box);
+        return h(
+          "label",
+          {
+            class: "row",
+            for: `invite-view-${view}`,
+            style: { gap: "4px", cursor: "pointer", border: "1px solid var(--border)", borderRadius: "8px", padding: "4px 8px" },
+          },
+          box,
+          h("span", { style: { fontSize: "13.5px" } }, label)
+        );
+      })
+    );
     const invitePerms = h(
       "div",
       { class: "field" },
-      h("span", { class: "label" }, "People who join with this QR can…"),
-      permRow(permDistros, "See distros & shifts", "Uncheck for helpers who shouldn't see event data at all."),
+      h("span", { class: "label" }, "People who join with this QR can open…"),
+      h(
+        "div",
+        { class: "list-item__meta" },
+        "Untick anything they shouldn't see. Check-in, Intake and Look up are always on; you can change any of this later per device."
+      ),
+      inviteViewGrid,
+      h("span", { class: "label", style: { marginTop: "var(--s2)" } }, "…and additionally may:"),
+      permRow(permDistros, "Sync the distros & shifts data at all", "The hard boundary: unchecked, that data never reaches their device."),
       permRow(permContactFix, "Fix phone numbers & emails", "For trusted data-cleanup volunteers. Every fix is logged."),
       permRow(permPartnerSync, "Run partner syncs", "Apply a partner org's fulfillment lists.")
     );
@@ -524,12 +601,17 @@ export function registerRosterView(store: BamStore): void {
         if (permPartnerSync.checked) caps.partnerSync = true;
         const dataGrants: { [key: string]: boolean } = {};
         if (!permDistros.checked) dataGrants.distros = false;
+        const viewGrants: { [view: string]: boolean } = {};
+        for (const [view, box] of inviteViewBoxes) {
+          if (!box.checked) viewGrants[view] = false;
+        }
         const { invite, secret } = createInvite(store.roster, store.peerId, {
           name,
           expiresInDays: Number(inviteDaysInput.value) || 7,
           maxUses: Number(inviteUsesInput.value) || 20,
           ...(Object.keys(caps).length ? { caps } : {}),
           ...(Object.keys(dataGrants).length ? { dataGrants } : {}),
+          ...(Object.keys(viewGrants).length ? { viewGrants } : {}),
         });
         const config = JSON.parse(localStorage.getItem("bam-local-first-config") ?? "{}") as {
           endpoint?: string;

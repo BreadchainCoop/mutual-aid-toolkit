@@ -162,6 +162,50 @@ export function hasCap(
   return roster?.members[peerId]?.caps?.[cap] === true;
 }
 
+/** May this device's app show/serve a given optional view? Missing = allowed
+ * (deny is the explicit act); admins always see everything. This is the
+ * APP-level tier — the underlying doc still syncs (see dataGrants for the
+ * sync-level tier). */
+export function viewAllowed(
+  roster: RosterDoc | undefined,
+  peerId: string,
+  view: string
+): boolean {
+  const member = roster?.members[peerId];
+  if (!member) return true; // pre-enrollment boot paths: don't blank the app
+  if (member.role === "admin") return true;
+  return member.viewGrants?.[view] !== false;
+}
+
+/** Admin action: grant (true) or deny (false) an optional view on a device. */
+export function setViewGrant(
+  handle: DocHandle<RosterDoc>,
+  actor: string,
+  peerId: string,
+  view: string,
+  allowed: boolean
+): void {
+  const doc = handle.doc();
+  if (!isAdmin(doc, actor)) {
+    throw new NotAuthorized(`peer ${actor} is not an active admin`);
+  }
+  const member = doc?.members[peerId];
+  if (!member) throw new Error(`no roster member ${peerId}`);
+  if (!allowed && member.role === "admin") {
+    throw new NotAuthorized("admins always see every view — demote first");
+  }
+  handle.change((d) => {
+    const m = d.members[peerId];
+    if (!m) return;
+    if (allowed) {
+      if (m.viewGrants) delete m.viewGrants[view];
+    } else {
+      if (!m.viewGrants) m.viewGrants = {};
+      m.viewGrants[view] = false;
+    }
+  });
+}
+
 export interface RosterPolicyOptions {
   /**
    * Peers always allowed regardless of roster state — the relay server's
@@ -505,6 +549,8 @@ export interface CreateInviteOptions {
   caps?: { [cap: string]: boolean };
   /** Data-domain presets (false = denied) applied at redemption. */
   dataGrants?: { [domainKey: string]: boolean };
+  /** Per-view presets (false = hidden + refused on that device). */
+  viewGrants?: { [view: string]: boolean };
 }
 
 /**
@@ -538,6 +584,9 @@ export function createInvite(
   if (opts.caps && Object.keys(opts.caps).length) invite.caps = { ...opts.caps };
   if (opts.dataGrants && Object.keys(opts.dataGrants).length) {
     invite.dataGrants = { ...opts.dataGrants };
+  }
+  if (opts.viewGrants && Object.keys(opts.viewGrants).length) {
+    invite.viewGrants = { ...opts.viewGrants };
   }
   handle.change((d) => {
     if (!d.invites) d.invites = {};
@@ -617,6 +666,9 @@ export function redeemInvite(
     if (invite.caps && Object.keys(invite.caps).length) entry.caps = { ...invite.caps };
     if (invite.dataGrants && Object.keys(invite.dataGrants).length) {
       entry.dataGrants = { ...invite.dataGrants };
+    }
+    if (invite.viewGrants && Object.keys(invite.viewGrants).length) {
+      entry.viewGrants = { ...invite.viewGrants };
     }
     if (args.profile) {
       const profile: Record<string, unknown> = {};

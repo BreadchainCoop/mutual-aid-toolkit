@@ -474,7 +474,11 @@
   };
 
   function isEnabled(name) {
-    return !BAM.features || BAM.features[name] !== false;
+    // Org-wide feature toggles (Settings) AND this device's view grants
+    // (Volunteers): either can hide an optional view.
+    if (BAM.features && BAM.features[name] === false) return false;
+    if (BAM.deviceViewGrants && BAM.deviceViewGrants[name] === false) return false;
+    return true;
   }
 
   function enabledViews() {

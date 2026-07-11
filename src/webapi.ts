@@ -19,7 +19,7 @@ import type {
   SocialServiceRequestRow,
 } from "./schema.ts";
 import { newId, nowIso, localDate } from "./schema.ts";
-import { domainAllowed, hasCap, isAdmin } from "./roster.ts";
+import { domainAllowed, hasCap, isAdmin, viewAllowed } from "./roster.ts";
 import {
   BY_KEY,
   GOODS,
@@ -219,6 +219,16 @@ export function makeWebApi(store: BamStore) {
   const requireAdmin = (what: string): void => {
     if (!amAdmin()) throw new ApiError(403, `Only admins can ${what}.`);
   };
+  /** Per-device view grant, with teeth: a denied device's own adapter refuses
+   * to serve that table — hiding the button alone is not access control. */
+  const requireView = (view: string, label: string): void => {
+    if (!viewAllowed(roster(), store.peerId, view)) {
+      throw new ApiError(
+        403,
+        `This device isn't allowed to open ${label} — ask an admin (Volunteers → what this device can open).`
+      );
+    }
+  };
   const requireDistrosDoc = () => {
     if (!store.distros) {
       throw new ApiError(
@@ -373,6 +383,7 @@ export function makeWebApi(store: BamStore) {
 
     // Outreach (spec 6.2 + A4-A6) -------------------------------------------
     async outreachList(filters: Record<string, unknown> = {}) {
+      requireView("outreach", "Outreach");
       return buildOutreachList(doc(), {
         requestTypes: (filters.request_types as string[]) ?? undefined,
         languages: (filters.languages as string[]) ?? undefined,
@@ -405,6 +416,7 @@ export function makeWebApi(store: BamStore) {
         subject?: string;
       } = {}
     ) {
+      requireView("outreach", "Outreach");
       const report = queueBlast(
         store.base,
         {
@@ -508,6 +520,7 @@ export function makeWebApi(store: BamStore) {
       return distroOut(wrap(() => createDistroDomain(handle, input)));
     },
     async listDistros() {
+      requireView("distros", "Distros");
       return allDistros()
         .sort((a, b) => (a.dateTime < b.dateTime ? -1 : 1))
         .map(distroOut);
@@ -532,6 +545,7 @@ export function makeWebApi(store: BamStore) {
 
     // Shifts & coverage board (in the distros doc) ---------------------------
     async listShifts(params: { from?: string; to?: string; include_past?: boolean } = {}) {
+      requireView("shifts", "Shifts");
       return listShiftSlots(distrosDoc(), {
         from: params.from,
         to: params.to,
@@ -585,6 +599,7 @@ export function makeWebApi(store: BamStore) {
       return { ok: true };
     },
     async claimShift(id: string, body: { name?: string } = {}) {
+      requireView("shifts", "Shifts");
       const handle = requireDistrosDoc();
       const name = body.name?.trim() || me().name || `device ${store.peerId.slice(0, 8)}`;
       try {
@@ -650,6 +665,7 @@ export function makeWebApi(store: BamStore) {
 
     // Reporting: waitlist + impact -------------------------------------------
     async waitlist() {
+      requireView("dashboard", "the Dashboard reports");
       const rows = waitlistReport(doc(), localDate(nowIso()));
       return rows.map((r) => ({
         type: r.type,
@@ -664,6 +680,7 @@ export function makeWebApi(store: BamStore) {
       }));
     },
     async impact(range: { start?: string; end?: string } = {}) {
+      requireView("dashboard", "the Dashboard reports");
       const r = impactReport(doc(), range);
       return {
         generated_at: r.generatedAt,
@@ -847,6 +864,7 @@ export function makeWebApi(store: BamStore) {
 
     // Browse / list views (parity with the Airtable Interfaces) ------------
     async appointments(date?: string) {
+      requireView("appointments", "Appointments");
       const d = doc();
       const day = date || localDate(nowIso());
       const counts = openCounts(d);
@@ -899,6 +917,7 @@ export function makeWebApi(store: BamStore) {
     async browseRequests(
       params: { category?: string; type?: string; status?: string; limit?: number; offset?: number } = {}
     ) {
+      if (params.category === "furniture") requireView("furniture", "Furniture");
       const d = doc();
       const [limit, offset] = clampPage(params.limit, params.offset);
       let all = Object.values(d.requests);
@@ -932,6 +951,7 @@ export function makeWebApi(store: BamStore) {
     async browseServices(
       params: { type?: string; status?: string; limit?: number; offset?: number } = {}
     ) {
+      requireView("services", "Social services");
       const d = doc();
       const [limit, offset] = clampPage(params.limit, params.offset);
       let all = Object.values(d.socialServiceRequests);
