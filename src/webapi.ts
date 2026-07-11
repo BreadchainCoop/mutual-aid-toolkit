@@ -68,6 +68,7 @@ import {
 } from "./domain/checkin.ts";
 import { partnerSyncByPhone, setPartnerOrg } from "./domain/partners.ts";
 import { impactReport, waitlistReport } from "./domain/reporting.ts";
+import { seedDemoData } from "./domain/seed.ts";
 import {
   ShiftFullError,
   claimShiftSlot,
@@ -743,6 +744,22 @@ export function makeWebApi(store: BamStore) {
           });
       });
       return { ok: true };
+    },
+
+    // Demo data ---------------------------------------------------------------
+    async seedDemoData() {
+      requireAdmin("load sample data");
+      const report = await seedDemoData(store);
+      return {
+        households: report.households,
+        goods_requests: report.goodsRequests,
+        social_service_requests: report.socialServiceRequests,
+        delivered_history: report.delivered,
+        distros: report.distros,
+        shift_slots: report.shiftSlots,
+        queued_messages: report.queuedMessages,
+        rebooking_queue: report.rebookingQueue,
+      };
     },
 
     // Jobs --------------------------------------------------------------------

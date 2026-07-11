@@ -155,10 +155,21 @@
     const jobsBody = section(
       "🧹",
       "Maintenance jobs",
-      "Expire stale requests, publish website counts, scrub expired PII.",
+      "Expire stale requests, publish website counts, scrub expired PII — and sample data for exploring.",
       false
     );
     jobsBody.append(
+      jobCard({
+        id: "seed-demo",
+        icon: "🌱",
+        title: "Load sample data",
+        desc:
+          "Fills this org with fictional households (555 numbers, example.com emails) so every screen has something to show: requests in eight languages, today's appointments, a cancelled distro's rebooking queue, shift gaps, paced re-requests, partner attributions, and delivered history for the impact report. Great for demos — don't run it on your real org.",
+        runLabel: "Load sample data",
+        run: () => api.seedDemoData(),
+        renderReport: kvList,
+        isEmpty: () => false,
+      }),
       jobCard({
         id: "expire",
         icon: "⏳",
