@@ -15,6 +15,9 @@ Everything you need to run your own copy.
   access to a data domain (starting with Distros), enforced at the sync layer.
 - **[Run a distribution](run-a-distribution.md)** — intake → outreach →
   check-in → distros, end to end.
+- **[Day-to-day operations](operations.md)** — cooldowns & seasons, slot
+  capacity & cancellations, the shifts board, partner sync, email outreach,
+  and the waitlist/impact reports.
 
 ## Make it yours
 - **[Make it your own](make-it-your-own.md)** — ship your own catalog, words and

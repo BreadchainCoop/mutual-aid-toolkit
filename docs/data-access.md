@@ -12,8 +12,8 @@ This lives on the **Admin** screen, in the new **Data access** card.
 Your org's information is kept in separate pieces — one per **domain**. Think of
 each domain as a folder your team shares:
 
-- **Distros** — the distributions and no-shows data. *(This is the first domain
-  you can control today.)*
+- **Distros & shifts** — the distribution events and the shift/coverage board.
+  *(This is the first domain you can control today.)*
 - More domains — people & appointments, requests, outreach — are on the way, and
   will show up in the same card as they land.
 

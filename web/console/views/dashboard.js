@@ -244,7 +244,9 @@
 
       result.append(headline);
 
-      // Ranked bars card, or an empty state when nothing is open.
+      // Ranked bars card, or an empty state when nothing is open. The
+      // waitlist/impact sections still render — deliveries exist even when
+      // the open queue is empty (that's the whole point of the impact report).
       if (!counts.length) {
         result.append(
           h(
@@ -263,6 +265,9 @@
             )
           )
         );
+        renderFulfilled();
+        renderWaitlist();
+        renderImpact();
         return;
       }
 
