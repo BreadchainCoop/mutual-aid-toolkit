@@ -41,6 +41,8 @@
       blasting: false,
       channel: "sms", // "sms" | "email" — email reaches the phone-unreachable
       interpreterOnly: false, // client-side filter: unsupported-language rows
+      explain: null, // plain-words description of the current list
+      lastReport: null, // last blast report (drives the pipeline stage)
     };
     // Selected household ids, preserved across candidate re-renders.
     const selected = new Set();
@@ -54,9 +56,78 @@
       h(
         "p",
         { class: "muted" },
-        "Build a filtered list of households with open requests, then text a blast, book appointments, or record call outcomes."
+        "Reach families with open requests and turn them into booked appointments."
       )
     );
+
+    /* ---- the pipeline: what happens, visually ----------------------------
+     * Non-technical volunteers shouldn't have to infer the state machine —
+     * draw it: open requests → your list → contact → booked → delivered,
+     * with the current stage highlighted and live counts where we have them. */
+    const pipeline = h("div", { class: "card stack" });
+    let openTotal = null;
+    void (async () => {
+      try {
+        const m = await api.openRequests();
+        openTotal = (m.counts || []).reduce((sum, c) => sum + (c.count || 0), 0);
+      } catch (_e) {
+        openTotal = null;
+      }
+      renderPipeline();
+    })();
+
+    function explainText() {
+      if (state.lastReport) {
+        return (
+          `Queued ${state.lastReport.sent} message${state.lastReport.sent === 1 ? "" : "s"} to the outbox — ` +
+          "a connected device sends them, and replies land on your org's phone line. " +
+          "Book citas from a row's Actions, or record a call outcome (3 no-answers times the request out)."
+        );
+      }
+      if (state.candidates && state.candidates.length) {
+        return (
+          (state.explain ? state.explain + " " : "") +
+          "Nothing has been sent — tick who to contact below, or open a row's Actions to book a cita or log a call."
+        );
+      }
+      return "Start with a ready-made list. Nothing is sent until you press the send button.";
+    }
+
+    function renderPipeline() {
+      clear(pipeline);
+      const listN = state.candidates ? state.candidates.length : null;
+      const stage = state.lastReport ? 3 : state.candidates && state.candidates.length ? 2 : 1;
+      const step = (i, icon, label, sub) =>
+        h(
+          "div",
+          {
+            class:
+              "pipe__step" +
+              (i === stage ? " pipe__step--now" : "") +
+              (i < stage ? " pipe__step--done" : ""),
+          },
+          h("div", { class: "pipe__icon", "aria-hidden": "true" }, icon),
+          h("div", { class: "pipe__label" }, label),
+          sub ? h("div", { class: "pipe__sub" }, sub) : null
+        );
+      const arrow = () => h("div", { class: "pipe__arrow", "aria-hidden": "true" }, "→");
+      pipeline.append(
+        h(
+          "div",
+          { class: "pipe" },
+          step(1, "🗂", "Open requests", openTotal != null ? `${openTotal} waiting` : "families waiting"),
+          arrow(),
+          step(2, "📋", "Your list", listN != null ? `${listN} people` : "pick who to reach"),
+          arrow(),
+          step(3, "📨", "Contact", state.lastReport ? `${state.lastReport.sent} queued` : "text · email · call"),
+          arrow(),
+          step(4, "📅", "Booked", "cita on the calendar"),
+          arrow(),
+          step(5, "✅", "Delivered", "at check-in")
+        ),
+        h("p", { class: "muted", style: { margin: "0", fontSize: "13px" } }, explainText())
+      );
+    }
 
     // ---------------------------------------------------------------- Panel A
     // Request types: free-text add -> pills.
@@ -178,6 +249,7 @@
           onclick: () => {
             resetFilters();
             apply();
+            state.explain = `Showing: ${hint.toLowerCase()}.`;
             renderChannelToggle();
             syncChannelUi();
             doBuildList();
@@ -435,7 +507,8 @@
 
     // ---- mount -----------------------------------------------------------
     clear(container);
-    container.append(heading, filtersForm, listResult, blastCard);
+    container.append(heading, pipeline, filtersForm, listResult, blastCard);
+    renderPipeline();
 
     renderRequestTypePills();
     renderChannelToggle();
@@ -523,6 +596,8 @@
         updateSendButton();
         // Reveal the send step now that there's a list to act on.
         blastCard.style.display = state.candidates.length ? "" : "none";
+        state.lastReport = null; // fresh list = back to the "contact" stage
+        renderPipeline();
       } catch (err) {
         state.candidates = null;
         renderListError(err);
@@ -1028,6 +1103,8 @@
       renderBlastLoading();
       try {
         const report = await api.blast(payload);
+        state.lastReport = report;
+        renderPipeline();
         renderBlastReport(report);
         toast(
           `Blast complete — ${report.sent} sent, ${report.failed} failed.`,

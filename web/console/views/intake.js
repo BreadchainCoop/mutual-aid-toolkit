@@ -261,7 +261,7 @@
       h(
         "p",
         { class: "muted", style: { margin: "0" } },
-        "Remember the delivery address below — furniture requests need it."
+        "Furniture gets delivered — you'll add the address in the last step."
       )
     );
 
@@ -273,8 +273,6 @@
       const on = furnitureSelected();
       furniturePanel.hidden = !on;
       furniturePanel.style.display = on ? "" : "none";
-      // Furniture needs a delivery address — surface the folded section.
-      if (on) moreDetails.open = true;
     }
 
     // ---- social services card -------------------------------------------
@@ -375,14 +373,98 @@
     // Result region, replaced on each submit.
     const result = h("div", { id: "intake-result" });
 
-    // Address + notes fold away — most intakes are phone + items. Selecting
-    // furniture opens this automatically (deliveries need the address).
+    // Address + notes live in the last step. Selecting furniture flags that
+    // the address matters (deliveries need it) — see syncFurniturePanel.
     const moreDetails = h(
-      "details",
-      { class: "advanced" },
-      h("summary", {}, "More details — delivery address & notes"),
-      h("div", { class: "stack", style: { marginTop: "var(--s3)" } }, addressCard, notesCard)
+      "div",
+      { class: "stack" },
+      addressCard,
+      notesCard
     );
+
+    /* ---- the guided wizard ------------------------------------------------
+     * One question at a time with visible progress, instead of a wall of
+     * cards. Steps: who → what they need → languages → confirm. */
+    const summaryCard = h("div", {});
+    const STEPS = [
+      { title: "Who needs help?", els: [contactCard] },
+      { title: "What do they need?", els: [goodsCard, furniturePanel, servicesCard] },
+      { title: "What languages do they speak?", els: [languagesCard] },
+      { title: "Check & submit", els: [summaryCard, moreDetails, submitBtn] },
+    ];
+    let stepIndex = 0;
+
+    const progressFill = h("div", { class: "wizard__fill" });
+    const progressLabel = h("div", { class: "wizard__label" });
+    const stepHost = h("div", { class: "stack" });
+    const backBtn = h(
+      "button",
+      { class: "btn", type: "button", onclick: () => setStep(stepIndex - 1) },
+      "← Back"
+    );
+    const nextBtn = h(
+      "button",
+      { class: "btn btn-primary grow", type: "button", onclick: onNext },
+      "Next →"
+    );
+    const navRow = h("div", { class: "row" }, backBtn, nextBtn);
+
+    function onNext() {
+      if (stepIndex === 0 && !phoneInput.value.trim()) {
+        toast("A phone number is all that's required.", "info");
+        phoneInput.focus();
+        return;
+      }
+      setStep(stepIndex + 1);
+    }
+
+    function renderSummary() {
+      clear(summaryCard);
+      const langs = collectLanguages();
+      const items = [...selectedGoods].map(prettyType);
+      const services = collectServices().map(prettyType);
+      const line = (label, value) =>
+        h(
+          "div",
+          { class: "row row--between", style: { gap: "var(--s3)" } },
+          h("span", { class: "label", style: { margin: "0" } }, label),
+          h("span", { style: { textAlign: "right" } }, value || h("span", { class: "muted" }, "—"))
+        );
+      summaryCard.append(
+        h(
+          "div",
+          { class: "card stack" },
+          h("h2", { class: "card__title" }, "Quick check"),
+          line("Phone", phoneInput.value.trim()),
+          line("Name", nameInput.value.trim()),
+          line("Items", items.join(", ")),
+          line("Services", services.join(", ")),
+          line("Languages", langs.map((l) => window.BAM.langShort(l)).join(", ")),
+          !items.length && !services.length
+            ? h(
+                "p",
+                { class: "muted", style: { margin: "0", fontSize: "13px" } },
+                "Nothing selected yet — go back to add what they need, or submit to just save their contact."
+              )
+            : null
+        )
+      );
+    }
+
+    function setStep(n) {
+      stepIndex = Math.max(0, Math.min(STEPS.length - 1, n));
+      const step = STEPS[stepIndex];
+      progressLabel.textContent = `Step ${stepIndex + 1} of ${STEPS.length} — ${step.title}`;
+      progressFill.style.width = `${((stepIndex + 1) / STEPS.length) * 100}%`;
+      clear(stepHost);
+      step.els.forEach((el) => stepHost.append(el));
+      backBtn.style.visibility = stepIndex === 0 ? "hidden" : "visible";
+      nextBtn.style.display = stepIndex === STEPS.length - 1 ? "none" : "";
+      if (stepIndex === 1) syncFurniturePanel();
+      if (stepIndex === STEPS.length - 1) renderSummary();
+      if (stepIndex === 0) setTimeout(() => phoneInput.focus(), 0);
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
 
     const form = h(
       "form",
@@ -394,20 +476,21 @@
           doSubmit();
         },
       },
-      contactCard,
-      goodsCard,
-      furniturePanel,
-      servicesCard,
-      languagesCard,
-      moreDetails,
-      submitBtn
+      h(
+        "div",
+        { class: "wizard" },
+        progressLabel,
+        h("div", { class: "wizard__track" }, progressFill)
+      ),
+      stepHost,
+      navRow
     );
 
     clear(container);
     container.append(heading, form, result);
 
     renderGoodsChips();
-    setTimeout(() => phoneInput.focus(), 0);
+    setStep(0);
 
     // Catalog policies (seasonal windows / pauses) — applied when they load.
     (async () => {
@@ -625,7 +708,7 @@
       langPick.reset();
       syncInternetPanel();
       syncFurniturePanel();
-      setTimeout(() => phoneInput.focus(), 0);
+      setStep(0); // back to the first question for the next neighbor
     }
 
     // ---- rendering helpers ----------------------------------------------

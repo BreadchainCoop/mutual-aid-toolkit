@@ -72,10 +72,128 @@
         );
         return;
       }
-      container.append(renderCreateForm(), listRegion, renderSlotUsageCard(), renderNoShowCard());
+      container.append(
+        nextRegion,
+        h(
+          "details",
+          { class: "advanced" },
+          h("summary", {}, "➕ Schedule a distribution"),
+          renderCreateForm()
+        ),
+        listRegion,
+        renderSlotUsageCard(),
+        renderNoShowCard()
+      );
       // Kick off the initial list load.
       loadDistros();
     });
+
+    // "Next distro" hero: the distro lifecycle as a checklist with live
+    // numbers — schedule → fill shifts → book citas → check in → wrap up —
+    // so running a distro is a sequence you can see, not tribal knowledge.
+    const nextRegion = h("div", {});
+
+    async function renderNextDistro() {
+      clear(nextRegion);
+      const today = todayLocalIso();
+      const next = (state.distros || [])
+        .filter((d) => d.status !== "Cancelled" && String(d.date_time).slice(0, 10) >= today)
+        .sort((a, b) => String(a.date_time).localeCompare(String(b.date_time)))[0];
+      if (!next) {
+        nextRegion.append(
+          h(
+            "div",
+            { class: "card empty-state" },
+            h("div", { class: "empty-state__icon" }, "📦"),
+            h("div", {}, "No upcoming distribution."),
+            h("p", { class: "muted" }, "Schedule one below — then fill shifts and book families.")
+          )
+        );
+        return;
+      }
+      const date = String(next.date_time).slice(0, 10);
+
+      // Live numbers (each optional — the checklist renders without them).
+      let shiftsTotal = 0;
+      let shiftsGap = 0;
+      try {
+        const slots = await api.listShifts({ from: date, to: date, include_past: true });
+        shiftsTotal = slots.reduce((sum, s) => sum + (s.needed || 0), 0);
+        shiftsGap = slots.reduce((sum, s) => sum + (s.gap || 0), 0);
+      } catch (_e) { /* shifts may be unavailable */ }
+      let booked = 0;
+      let checkedIn = 0;
+      try {
+        const rows = await api.appointments(date);
+        booked = rows.length;
+        checkedIn = rows.filter((r) => r.appointment_status === "Checked-in").length;
+      } catch (_e) { /* fine */ }
+
+      const isToday = date === today;
+      const stepRow = (done, icon, label, meta, view) =>
+        h(
+          "li",
+          {
+            class: "list-item" + (view ? " list-item--selectable" : ""),
+            style: view ? { cursor: "pointer" } : null,
+            onclick: view ? () => window.BAM.navigate(view) : null,
+          },
+          h("span", { class: `badge ${done ? "badge-delivered" : "badge-open"}` }, done ? "✓" : icon),
+          h(
+            "div",
+            { class: "list-item__body" },
+            h("div", { class: "list-item__label" }, label),
+            meta ? h("div", { class: "list-item__meta" }, meta) : null
+          ),
+          view ? h("span", { class: "muted", "aria-hidden": "true" }, "→") : null
+        );
+
+      nextRegion.append(
+        h(
+          "div",
+          { class: "card stack", style: { borderColor: "var(--brand)", borderWidth: "2px" } },
+          h(
+            "div",
+            { class: "row row--between" },
+            h("h2", { class: "card__title", style: { margin: "0" } }, isToday ? "Today's distro" : "Next distro"),
+            h("span", { class: "pill" }, `${fmtDateTime(next.date_time)}${next.location ? " · " + next.location : ""}`)
+          ),
+          h(
+            "ul",
+            { class: "list" },
+            stepRow(true, "1", "Scheduled", next.slot_capacity != null ? `Cap ${next.slot_capacity} per 30-min slot` : "No slot cap set"),
+            stepRow(
+              shiftsTotal > 0 && shiftsGap === 0,
+              "2",
+              "Fill the shifts",
+              shiftsTotal === 0
+                ? "No shift slots posted yet"
+                : shiftsGap > 0
+                  ? `${shiftsGap} of ${shiftsTotal} role${shiftsTotal === 1 ? "" : "s"} still need cover`
+                  : "All roles covered",
+              "shifts"
+            ),
+            stepRow(
+              booked > 0,
+              "3",
+              "Book families in",
+              booked > 0 ? `${booked} cita${booked === 1 ? "" : "s"} booked` : "No citas yet — build a list in Outreach",
+              "outreach"
+            ),
+            stepRow(
+              isToday && checkedIn > 0,
+              "4",
+              "Day of: check people in",
+              isToday
+                ? `${checkedIn} of ${booked} checked in`
+                : "On the day, use Check-in as families arrive",
+              isToday ? "appointments" : null
+            ),
+            stepRow(false, "5", "After: run the no-show pass", "Marks who didn't come and clears their citas — bottom of this page")
+          )
+        )
+      );
+    }
 
     container.append(heading);
 
@@ -251,6 +369,7 @@
         state.loading = false;
       }
       renderList();
+      void renderNextDistro();
     }
 
     function renderList() {

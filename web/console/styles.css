@@ -1119,3 +1119,170 @@ details.advanced[open] > summary::before {
     gap: var(--s1);
   }
 }
+
+/* Shifts calendar ----------------------------------------------------------- */
+
+.cal {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 3px;
+}
+
+.cal__dow {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  text-align: center;
+  padding: var(--s1) 0;
+}
+
+.cal__day {
+  position: relative;
+  aspect-ratio: 1 / 0.9;
+  min-height: 42px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-start;
+  padding: 4px 6px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font: inherit;
+  font-size: 13px;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.cal__day--pad {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.cal__day--has {
+  border-color: var(--ink);
+}
+
+.cal__day--today .cal__num {
+  font-weight: 800;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.cal__day--selected {
+  background: var(--brand-soft);
+  border-color: var(--brand);
+  border-width: 2px;
+}
+
+.cal__mark {
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  min-width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 4px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.cal__mark--gap {
+  background: var(--danger, #df0b00);
+  color: #fff;
+}
+
+.cal__mark--ok {
+  background: var(--ok-soft, #dff5e6);
+  color: var(--ok, #166534);
+}
+
+/* Step wizard (intake, distros) --------------------------------------------- */
+
+.wizard {
+  margin-bottom: var(--s3);
+}
+
+.wizard__label {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 15px;
+  margin-bottom: var(--s2);
+}
+
+.wizard__track {
+  height: 8px;
+  background: var(--surface-2, var(--border));
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.wizard__fill {
+  height: 100%;
+  width: 25%;
+  background: var(--brand);
+  border-radius: 999px;
+  transition: width 0.25s ease;
+}
+
+/* Outreach pipeline ---------------------------------------------------------- */
+
+.pipe {
+  display: flex;
+  align-items: stretch;
+  gap: var(--s1);
+  overflow-x: auto;
+  padding-bottom: var(--s1);
+}
+
+.pipe__step {
+  flex: 1 1 0;
+  min-width: 86px;
+  text-align: center;
+  padding: var(--s2);
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  opacity: 0.75;
+}
+
+.pipe__step--now {
+  border-color: var(--brand);
+  border-width: 2px;
+  background: var(--brand-soft);
+  opacity: 1;
+}
+
+.pipe__step--done {
+  border-color: var(--ok, #32a800);
+  opacity: 1;
+}
+
+.pipe__icon {
+  font-size: 20px;
+  line-height: 1.2;
+}
+
+.pipe__label {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 13px;
+}
+
+.pipe__sub {
+  font-size: 11.5px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+
+.pipe__arrow {
+  align-self: center;
+  color: var(--muted);
+  font-weight: 700;
+  flex: none;
+}
