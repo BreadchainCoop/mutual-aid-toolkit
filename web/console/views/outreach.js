@@ -41,9 +41,8 @@
     };
     // Selected household ids, preserved across candidate re-renders.
     const selected = new Set();
-    // Custom (free-text-added) request types and languages the operator added.
+    // Custom (free-text-added) request types the operator added.
     const customRequestTypes = new Set();
-    const customLanguages = new Set();
 
     const heading = h(
       "div",
@@ -74,22 +73,8 @@
     });
     const requestTypePills = h("div", { class: "row", id: "out-req-pills" });
 
-    // Language checkboxes (common set) + custom-added ones.
-    const languageChecks = h("div", { class: "stack", id: "out-langs" });
-    const customLanguageInput = h("input", {
-      class: "input",
-      id: "out-lang-add",
-      type: "text",
-      autocomplete: "off",
-      placeholder: "Add another language label",
-      "aria-label": "Add a custom language filter",
-      onkeydown: (e) => {
-        if (e.key === "Enter") {
-          e.preventDefault();
-          addLanguage();
-        }
-      },
-    });
+    // Language filter — compact chip-toggle picker (see BAM.langPicker).
+    const langPick = BAM.langPicker({});
 
     const excludeTextedInput = h("input", {
       class: "input",
@@ -162,17 +147,7 @@
         "div",
         { class: "field" },
         h("span", { class: "label" }, "Languages (optional)"),
-        languageChecks,
-        h(
-          "div",
-          { class: "row" },
-          h("div", { class: "grow" }, customLanguageInput),
-          h(
-            "button",
-            { class: "btn", type: "button", onclick: addLanguage },
-            "Add"
-          )
-        )
+        langPick.el
       ),
       // Recency + limit
       h(
@@ -317,7 +292,6 @@
     container.append(heading, filtersForm, listResult, blastCard);
 
     renderRequestTypePills();
-    renderLanguageChecks();
     renderListPlaceholder();
     updateSendButton();
 
@@ -361,48 +335,6 @@
       });
     }
 
-    function addLanguage() {
-      const raw = customLanguageInput.value.trim();
-      if (!raw) return;
-      customLanguages.add(raw);
-      customLanguageInput.value = "";
-      renderLanguageChecks();
-    }
-
-    function renderLanguageChecks() {
-      clear(languageChecks);
-      const all = COMMON_LANGUAGES.concat([...customLanguages]);
-      all.forEach((lang, i) => {
-        const id = `out-lang-${i}`;
-        // Preserve any existing checked state across re-renders (e.g. after
-        // adding a custom language) by reading the live inputs first.
-        const wasChecked = checkedLanguages().includes(lang);
-        const cb = h("input", {
-          type: "checkbox",
-          id,
-          value: lang,
-          checked: wasChecked,
-        });
-        const row = h(
-          "label",
-          {
-            class: "list-item list-item--selectable",
-            for: id,
-          },
-          cb,
-          h("span", { class: "list-item__body" }, lang)
-        );
-        languageChecks.append(row);
-      });
-    }
-
-    // Read currently-checked languages from the DOM.
-    function checkedLanguages() {
-      return [...languageChecks.querySelectorAll('input[type="checkbox"]:checked')].map(
-        (cb) => cb.value
-      );
-    }
-
     // ---- Panel A: build the list ----------------------------------------
 
     function readFilters() {
@@ -411,11 +343,17 @@
         exclude_attended_within_days: toNonNegInt(excludeAttendedInput.value, 0),
       };
       if (customRequestTypes.size) filters.request_types = [...customRequestTypes];
-      const langs = checkedLanguages();
+      const langs = langPick.getSelected();
       if (langs.length) filters.languages = langs;
       const limit = parseInt(limitInput.value, 10);
       if (Number.isFinite(limit) && limit > 0) filters.limit = limit;
       return filters;
+    }
+
+    // Disable the Build button while a list is loading (prevents double-submit).
+    function setListBusy(busy) {
+      buildBtn.disabled = !!busy;
+      buildBtn.textContent = busy ? "Building…" : "Build list";
     }
 
     async function doBuildList() {

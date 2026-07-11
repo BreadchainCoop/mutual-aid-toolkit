@@ -140,43 +140,19 @@
     );
 
     // ---- languages card --------------------------------------------------
-    const languageBoxes = COMMON_LANGUAGES.map((lang) =>
-      checkboxRow(`lang-${slug(lang)}`, lang)
-    );
-    const languageChips = h("div", { class: "row", id: "intake-language-chips" });
-
-    const languageAddInput = h("input", {
-      class: "input",
-      type: "text",
-      id: "intake-language-add",
-      autocomplete: "off",
-      placeholder: "Add another language",
-      "aria-label": "Add another language",
-      onkeydown: (e) => {
-        if (e.key === "Enter") {
-          e.preventDefault();
-          addCustomLanguage();
-        }
-      },
-    });
-    const languageAddBtn = h(
-      "button",
-      { class: "btn", type: "button", onclick: addCustomLanguage },
-      "Add"
-    );
-
+    // Compact chip-toggle picker (see BAM.langPicker) — replaces the old wall
+    // of trilingual checkboxes. Selection still stores the full labels.
+    const langPick = BAM.langPicker({});
     const languagesCard = h(
       "div",
       { class: "card stack" },
       h("h2", { class: "card__title" }, "Languages"),
-      h("div", { class: "stack" }, languageBoxes),
-      languageChips,
       h(
-        "div",
-        { class: "field" },
-        h("label", { class: "label", for: "intake-language-add" }, "Other language"),
-        h("div", { class: "row" }, h("div", { class: "grow" }, languageAddInput), languageAddBtn)
-      )
+        "p",
+        { class: "muted", style: { margin: "0" } },
+        "Tap the languages this household speaks."
+      ),
+      langPick.el
     );
 
     // ---- goods card ------------------------------------------------------
@@ -385,7 +361,6 @@
     container.append(heading, form, result);
 
     renderGoodsChips();
-    renderLanguageChips();
     setTimeout(() => phoneInput.focus(), 0);
 
     // ---- goods chip UI ---------------------------------------------------
@@ -457,48 +432,6 @@
       goodsAddInput.focus();
     }
 
-    // ---- language chip UI ------------------------------------------------
-
-    function renderLanguageChips() {
-      clear(languageChips);
-      languageChips.append(
-        ...customLanguages.map((lang) =>
-          h(
-            "span",
-            { class: "row", style: { gap: "var(--s1)" } },
-            h("span", { class: "pill" }, lang),
-            h(
-              "button",
-              {
-                type: "button",
-                class: "btn btn-ghost",
-                style: { minHeight: "auto", minWidth: "auto", padding: "0 var(--s2)" },
-                "aria-label": `Remove ${lang}`,
-                onclick: () => {
-                  const i = customLanguages.indexOf(lang);
-                  if (i >= 0) customLanguages.splice(i, 1);
-                  renderLanguageChips();
-                },
-              },
-              "×"
-            )
-          )
-        )
-      );
-    }
-
-    function addCustomLanguage() {
-      const value = languageAddInput.value.trim();
-      if (!value) return;
-      const known =
-        COMMON_LANGUAGES.some((l) => l.toLowerCase() === value.toLowerCase()) ||
-        customLanguages.some((l) => l.toLowerCase() === value.toLowerCase());
-      if (!known) customLanguages.push(value);
-      languageAddInput.value = "";
-      renderLanguageChips();
-      languageAddInput.focus();
-    }
-
     // ---- internet panel visibility --------------------------------------
 
     function internetChecked() {
@@ -515,15 +448,7 @@
     // ---- collect + submit ------------------------------------------------
 
     function collectLanguages() {
-      const langs = [];
-      COMMON_LANGUAGES.forEach((lang) => {
-        const box = document.getElementById(`lang-${slug(lang)}`);
-        if (box && box.checked) langs.push(lang);
-      });
-      customLanguages.forEach((lang) => {
-        if (!langs.includes(lang)) langs.push(lang);
-      });
-      return langs;
+      return langPick.getSelected();
     }
 
     function collectServices() {
@@ -601,9 +526,8 @@
       form.reset();
       selectedGoods.clear();
       customGoods.length = 0;
-      customLanguages.length = 0;
       renderGoodsChips();
-      renderLanguageChips();
+      langPick.reset();
       syncInternetPanel();
       syncFurniturePanel();
       setTimeout(() => phoneInput.focus(), 0);

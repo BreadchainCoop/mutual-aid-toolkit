@@ -301,6 +301,134 @@
     el.innerHTML = logo; // trusted inline SVG supplied by the instance config
   }
 
+  /**
+   * Short display name for a language label. Catalog languages are compound
+   * "Español / Spanish / 西班牙语" strings; show the English middle segment
+   * ("Spanish") on chips while the full label stays the stored value.
+   */
+  BAM.langShort = function langShort(label) {
+    const parts = String(label || "")
+      .split("/")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    return parts[1] || parts[0] || String(label || "");
+  };
+
+  /**
+   * Compact chip-toggle multiselect for languages (replaces long checkbox
+   * lists). Returns { el, getSelected(), setSelected(arr), reset() }.
+   * getSelected() yields the FULL labels, so the data contract is unchanged.
+   * opts: { languages?, selected?, onChange?, search?, allowCustom? }
+   */
+  BAM.langPicker = function langPicker(opts) {
+    opts = opts || {};
+    const h = BAM.h,
+      clear = BAM.clear;
+    const base = (opts.languages || window.BAM.LANGUAGES || []).slice();
+    const customs = [];
+    const selected = new Set(opts.selected || []);
+    const onChange = opts.onChange || function () {};
+
+    const grid = h("div", { class: "langpicker__grid" });
+    const search = h("input", {
+      class: "input",
+      type: "search",
+      placeholder: "Search languages…",
+      "aria-label": "Search languages",
+      oninput: render,
+    });
+    const addInput = h("input", {
+      class: "input",
+      type: "text",
+      autocomplete: "off",
+      placeholder: "Add another language",
+      "aria-label": "Add another language",
+      onkeydown: (e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          addCustom();
+        }
+      },
+    });
+    const addBtn = h("button", { class: "btn", type: "button", onclick: addCustom }, "Add");
+
+    function all() {
+      return base.concat(customs);
+    }
+    function addCustom() {
+      const v = addInput.value.trim();
+      if (!v) return;
+      let match = all().find((l) => l.toLowerCase() === v.toLowerCase());
+      if (!match) {
+        customs.push(v);
+        match = v;
+      }
+      selected.add(match);
+      addInput.value = "";
+      render();
+      onChange(getSelected());
+    }
+    function toggle(label) {
+      if (selected.has(label)) selected.delete(label);
+      else selected.add(label);
+      render();
+      onChange(getSelected());
+    }
+    function chip(label) {
+      const on = selected.has(label);
+      return h(
+        "button",
+        {
+          type: "button",
+          class: "langchip" + (on ? " langchip--on" : ""),
+          title: label,
+          "aria-pressed": String(on),
+          onclick: () => toggle(label),
+        },
+        on ? h("span", { class: "langchip__check", "aria-hidden": "true" }, "✓") : null,
+        BAM.langShort(label)
+      );
+    }
+    function render() {
+      clear(grid);
+      const q = (search.value || "").trim().toLowerCase();
+      const shown = all().filter(
+        (l) => !q || BAM.langShort(l).toLowerCase().indexOf(q) >= 0 || l.toLowerCase().indexOf(q) >= 0
+      );
+      if (!shown.length) grid.append(h("div", { class: "langpicker__empty" }, "No match — add it below."));
+      else shown.forEach((l) => grid.append(chip(l)));
+    }
+    function getSelected() {
+      return all().filter((l) => selected.has(l));
+    }
+
+    render();
+    const el = h(
+      "div",
+      { class: "langpicker" },
+      opts.search === false ? null : search,
+      grid,
+      opts.allowCustom === false
+        ? null
+        : h("div", { class: "row" }, h("div", { class: "grow" }, addInput), addBtn)
+    );
+    return {
+      el,
+      getSelected,
+      setSelected(arr) {
+        selected.clear();
+        (arr || []).forEach((x) => selected.add(x));
+        render();
+      },
+      reset() {
+        selected.clear();
+        customs.length = 0;
+        if (search) search.value = "";
+        render();
+      },
+    };
+  };
+
   /** Theme the console from an instance config (GET /config). */
   BAM.applyConfig = function applyConfig(config) {
     BAM.config = config || {};

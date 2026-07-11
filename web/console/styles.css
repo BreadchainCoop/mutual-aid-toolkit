@@ -855,3 +855,63 @@ details.advanced[open] > summary {
 details.advanced[open] > summary::before {
   content: "▾ ";
 }
+
+/* Language picker — a compact chip-toggle multiselect that replaces long
+   checkbox lists. Shows a short display name; the full label is the value. */
+.langpicker {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+}
+
+.langpicker__grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s2);
+}
+
+.langchip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 40px;
+  padding: 6px 14px;
+  font: inherit;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text);
+  background: var(--surface);
+  border: 1.5px solid var(--ink);
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+  transition: background 0.12s ease, transform 0.1s ease, box-shadow 0.1s ease;
+}
+
+.langchip:hover {
+  background: var(--surface-2);
+}
+
+.langchip--on {
+  background: var(--brand);
+  color: var(--brand-ink);
+  box-shadow: var(--lift-sm);
+}
+
+.langchip--on:hover {
+  background: #d24f13;
+}
+
+.langchip:active {
+  transform: translateY(1px);
+}
+
+.langchip__check {
+  font-weight: 900;
+  line-height: 1;
+}
+
+.langpicker__empty {
+  color: var(--muted);
+  font-size: 14px;
+  padding: var(--s2) 0;
+}

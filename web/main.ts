@@ -11,7 +11,13 @@
 import { WebCryptoSigner } from "@automerge/automerge-subduction";
 import { IndexedDBStorageAdapter } from "@automerge/automerge-repo-storage-indexeddb";
 import { DEFAULT_SYNC_ENDPOINT, learnedRelayPeers, openStore, type BamStore } from "../src/store.ts";
-import { isAdmin, parseInviteUrl, type InvitePayload } from "../src/roster.ts";
+import {
+  isAdmin,
+  parseInviteUrl,
+  reinstateMember,
+  revokeMember,
+  type InvitePayload,
+} from "../src/roster.ts";
 import { makeWebApi } from "../src/webapi.ts";
 import { registerRosterView } from "../src/roster-view.ts";
 import { registerSettingsView } from "../src/settings-view.ts";
@@ -430,6 +436,21 @@ async function boot(): Promise<void> {
   w.BAM = w.BAM || {};
   w.BAM.api = makeWebApi(store);
   w.BAM.LANGUAGES = [...LANGUAGES];
+  // Roster-backed access control, exposed for the Admin view's revoke card.
+  w.BAM.access = {
+    myPeerId: store.peerId,
+    isAdmin: () => isAdmin(store.roster.doc(), store.peerId),
+    members: () =>
+      Object.values(store.roster.doc()?.members ?? {}).map((m) => ({
+        peerId: m.peerId,
+        name: m.name,
+        role: m.role,
+        revoked: !!m.revokedAt,
+      })),
+    revoke: (peerId: string) => revokeMember(store.roster, store.peerId, peerId),
+    reinstate: (peerId: string) => reinstateMember(store.roster, store.peerId, peerId),
+    onChange: (cb: () => void) => store.roster.on("change", cb),
+  };
 
   for (const code of CONSOLE_SCRIPTS) runInlineScript(code);
   // The Admin view (expire / publish website data / scrub PII) is only

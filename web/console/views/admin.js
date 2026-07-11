@@ -122,6 +122,7 @@
 
     clear(container);
     container.append(heading);
+    renderAccessCard(container);
 
     // Build each job card.
     container.append(
@@ -395,6 +396,121 @@
     document.head.appendChild(
       h("style", { id: "admin-view-styles", html: css })
     );
+  }
+
+  /* Access control — revoke / reinstate a device (backed by BAM.access, set in
+     main.ts from the roster). Destructive actions confirm inline. */
+  function renderAccessCard(parent) {
+    const access = window.BAM.access;
+    if (!access || !access.isAdmin || !access.isAdmin()) return;
+    const card = h("div", { class: "card stack" });
+    parent.append(card);
+    let confirming = null; // peerId pending a revoke confirm
+
+    function draw() {
+      clear(card);
+      card.append(
+        h("h2", { class: "card__title" }, "Access control"),
+        h(
+          "p",
+          { class: "muted", style: { margin: "0" } },
+          "Revoke a device's access to this org, or bring it back. Revoking stops future updates from reaching that device."
+        )
+      );
+      const others = access.members().filter((m) => m.peerId !== access.myPeerId);
+      if (!others.length) {
+        card.append(
+          h(
+            "div",
+            { class: "empty-state" },
+            h("div", {}, "No other devices yet — invite one from Your team.")
+          )
+        );
+        return;
+      }
+      const revoke = (m) => {
+        try {
+          access.revoke(m.peerId);
+          toast(`Revoked ${m.name} — they'll stop getting updates.`, "success");
+        } catch (e) {
+          toast((e && e.message) || String(e), "error");
+        }
+        confirming = null;
+        draw();
+      };
+      const reinstate = (m) => {
+        try {
+          access.reinstate(m.peerId);
+          toast(`Reinstated ${m.name}.`, "success");
+        } catch (e) {
+          toast((e && e.message) || String(e), "error");
+        }
+        confirming = null;
+        draw();
+      };
+      const list = h("ul", { class: "list" });
+      others.forEach((m) => {
+        let action;
+        if (m.revoked) {
+          action = h(
+            "button",
+            { class: "btn btn-ghost", type: "button", onclick: () => reinstate(m) },
+            "Reinstate"
+          );
+        } else if (confirming === m.peerId) {
+          action = h(
+            "span",
+            { class: "row", style: { gap: "6px" } },
+            h("button", { class: "btn btn-danger", type: "button", onclick: () => revoke(m) }, "Confirm revoke"),
+            h(
+              "button",
+              {
+                class: "btn btn-ghost",
+                type: "button",
+                onclick: () => {
+                  confirming = null;
+                  draw();
+                },
+              },
+              "Cancel"
+            )
+          );
+        } else {
+          action = h(
+            "button",
+            {
+              class: "btn btn-danger",
+              type: "button",
+              onclick: () => {
+                confirming = m.peerId;
+                draw();
+              },
+            },
+            "Revoke"
+          );
+        }
+        list.append(
+          h(
+            "li",
+            { class: "list-item" },
+            h(
+              "div",
+              { class: "list-item__body" },
+              h("div", { class: "list-item__label" }, m.name),
+              h(
+                "div",
+                { class: "list-item__meta mono", style: { wordBreak: "break-all" } },
+                m.peerId
+              )
+            ),
+            h("span", { class: "badge " + (m.revoked ? "badge-timeout" : "badge-open") }, m.revoked ? "revoked" : m.role),
+            action
+          )
+        );
+      });
+      card.append(list);
+    }
+    draw();
   }
 
   window.BAM.registerView("admin", {
