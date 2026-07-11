@@ -299,33 +299,87 @@ function runInlineScript(code: string): void {
   document.body.append(script);
 }
 
-/** QR onboarding: `#invite=…` in the URL → one-field join screen. */
+/** QR onboarding: `#invite=…` in the URL → name + a few optional questions
+ * that help the team match the volunteer to work (languages → interpreter
+ * shifts, vehicle → driver slots, availability → scheduling). */
 async function inviteScreen(
   root: HTMLElement,
   payload: InvitePayload,
   hadExistingOrg = false
-): Promise<{ config: AppConfig; deviceName: string }> {
+): Promise<{
+  config: AppConfig;
+  deviceName: string;
+  profile?: import("../src/schema.ts").VolunteerProfile;
+}> {
   return new Promise((resolve) => {
     root.innerHTML = "";
     const card = document.createElement("div");
     card.className = "card stack";
-    card.style.cssText = "max-width:480px;margin:48px auto";
+    card.style.cssText = "max-width:520px;margin:48px auto";
     const replaceNote = hadExistingOrg
       ? `<div class="note">This device already belongs to another org — joining this invite switches it to <b>${payload.org ?? "the invited org"}</b> as a volunteer.</div>`
       : "";
+    const langShort = (label: string): string => {
+      const parts = label.split("/").map((s) => s.trim()).filter(Boolean);
+      return parts[1] ?? parts[0] ?? label;
+    };
+    const langChips = LANGUAGES.map(
+      (label, i) =>
+        `<button type="button" class="langchip" data-lang="${i}" aria-pressed="false">${langShort(label)}</button>`
+    ).join("");
+    const availability = ["Weekday mornings", "Weekday afternoons", "Weekday evenings", "Weekends"];
+    const availChips = availability
+      .map(
+        (a, i) =>
+          `<button type="button" class="langchip" data-avail="${i}" aria-pressed="false">${a}</button>`
+      )
+      .join("");
     card.innerHTML = `
       <h2 class="card__title">You're invited to ${payload.org ?? "a BAM org"} 🎉</h2>
       <p class="muted" style="margin:0">This enrolls your device as a <b>volunteer</b>.
-      Pick a name so the team knows whose device this is:</p>
+      Just your name is required — the rest helps the team match you to shifts.</p>
       ${replaceNote}
       <div class="field">
         <label class="label" for="invite-device-name">Your name</label>
-        <input class="input" id="invite-device-name" placeholder="e.g. Rosa — personal phone" autocomplete="off">
+        <input class="input" id="invite-device-name" placeholder="e.g. Rosa" autocomplete="off">
+      </div>
+      <div class="field">
+        <span class="label">Languages you can work in <span class="muted">(optional)</span></span>
+        <div class="langpicker__grid">${langChips}</div>
+      </div>
+      <div class="field">
+        <label class="label" for="invite-neighborhood">Where are you based? <span class="muted">(optional)</span></label>
+        <input class="input" id="invite-neighborhood" placeholder="e.g. Bushwick" autocomplete="off">
+      </div>
+      <div class="field">
+        <label class="label" for="invite-vehicle">Do you have a vehicle? <span class="muted">(optional)</span></label>
+        <select class="input" id="invite-vehicle">
+          <option value="">No vehicle</option>
+          <option value="bike">Bike / cargo bike</option>
+          <option value="car">Car</option>
+          <option value="van">Van or truck</option>
+        </select>
+      </div>
+      <div class="field">
+        <span class="label">When can you usually help? <span class="muted">(optional)</span></span>
+        <div class="langpicker__grid">${availChips}</div>
+      </div>
+      <div class="field">
+        <label class="label" for="invite-skills">Anything else the team should know? <span class="muted">(optional)</span></label>
+        <input class="input" id="invite-skills" placeholder="e.g. nurse, can lift heavy, speaks some ASL" autocomplete="off">
       </div>
       <button class="btn btn-primary btn-block" id="invite-join-btn">Join as a volunteer</button>`;
     root.append(card);
     const input = card.querySelector<HTMLInputElement>("#invite-device-name")!;
     const btn = card.querySelector<HTMLButtonElement>("#invite-join-btn")!;
+    // Chip toggles (no framework on this screen — tiny inline handler).
+    card.querySelectorAll<HTMLButtonElement>(".langchip").forEach((chip) => {
+      chip.addEventListener("click", () => {
+        const on = chip.getAttribute("aria-pressed") === "true";
+        chip.setAttribute("aria-pressed", String(!on));
+        chip.classList.toggle("langchip--on", !on);
+      });
+    });
     input.focus();
     const go = (): void => {
       const deviceName = input.value.trim();
@@ -333,6 +387,21 @@ async function inviteScreen(
         input.focus();
         return;
       }
+      const selLangs = Array.from(
+        card.querySelectorAll<HTMLButtonElement>('.langchip[data-lang][aria-pressed="true"]')
+      ).map((c) => LANGUAGES[Number(c.dataset.lang)]!);
+      const selAvail = Array.from(
+        card.querySelectorAll<HTMLButtonElement>('.langchip[data-avail][aria-pressed="true"]')
+      ).map((c) => availability[Number(c.dataset.avail)]!);
+      const neighborhood = card.querySelector<HTMLInputElement>("#invite-neighborhood")!.value.trim();
+      const vehicle = card.querySelector<HTMLSelectElement>("#invite-vehicle")!.value;
+      const skills = card.querySelector<HTMLInputElement>("#invite-skills")!.value.trim();
+      const profile: import("../src/schema.ts").VolunteerProfile = {};
+      if (selLangs.length) profile.languages = selLangs;
+      if (selAvail.length) profile.availability = selAvail;
+      if (neighborhood) profile.neighborhood = neighborhood;
+      if (vehicle) profile.vehicle = vehicle;
+      if (skills) profile.skills = skills;
       resolve({
         config: {
           mode: "join",
@@ -341,6 +410,7 @@ async function inviteScreen(
           relayPeer: payload.relayPeer,
         },
         deviceName,
+        profile: Object.keys(profile).length ? profile : undefined,
       });
     };
     btn.onclick = go;
@@ -382,6 +452,7 @@ async function boot(): Promise<void> {
       inviteId: invitePayload.inviteId,
       secret: invitePayload.secret,
       deviceName: joined.deviceName,
+      ...(joined.profile ? { profile: joined.profile } : {}),
     };
   }
   if (!config) {
@@ -457,7 +528,10 @@ async function boot(): Promise<void> {
         role: m.role,
         revoked: !!m.revokedAt,
         lastSeenAt: m.lastSeenAt ?? null,
+        profile: m.profile ?? null,
       })),
+    /** This device's volunteer profile (languages, vehicle, availability). */
+    myProfile: () => store.roster.doc()?.members[store.peerId]?.profile ?? null,
     revoke: (peerId: string) => revokeMember(store.roster, store.peerId, peerId),
     reinstate: (peerId: string) => reinstateMember(store.roster, store.peerId, peerId),
     // Data domains (Architecture A): grant/deny what each device may SYNC.

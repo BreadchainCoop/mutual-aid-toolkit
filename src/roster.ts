@@ -501,6 +501,10 @@ export interface CreateInviteOptions {
   expiresInDays?: number;
   /** Soft redemption cap (honest-client enforced). Default 20. */
   maxUses?: number;
+  /** Capability presets everyone joining with this invite receives. */
+  caps?: { [cap: string]: boolean };
+  /** Data-domain presets (false = denied) applied at redemption. */
+  dataGrants?: { [domainKey: string]: boolean };
 }
 
 /**
@@ -531,6 +535,10 @@ export function createInvite(
     expiresAt,
     maxUses: opts.maxUses ?? 20,
   };
+  if (opts.caps && Object.keys(opts.caps).length) invite.caps = { ...opts.caps };
+  if (opts.dataGrants && Object.keys(opts.dataGrants).length) {
+    invite.dataGrants = { ...opts.dataGrants };
+  }
   handle.change((d) => {
     if (!d.invites) d.invites = {};
     d.invites[invite.id] = invite;
@@ -568,7 +576,13 @@ export function revokeInvite(
 export function redeemInvite(
   handle: DocHandle<RosterDoc>,
   peerId: string,
-  args: { inviteId: string; secret: string; deviceName: string },
+  args: {
+    inviteId: string;
+    secret: string;
+    deviceName: string;
+    /** Optional self-described volunteer profile from the join screen. */
+    profile?: import("./schema.ts").VolunteerProfile;
+  },
   now: string = nowIso()
 ): RosterMember {
   const doc = handle.doc();
@@ -598,9 +612,52 @@ export function redeemInvite(
       inviteId: invite.id,
       inviteProof: args.secret,
     };
+    // The invite carries the permissions the admin chose when minting it —
+    // volunteers arrive already set up, no follow-up grants needed.
+    if (invite.caps && Object.keys(invite.caps).length) entry.caps = { ...invite.caps };
+    if (invite.dataGrants && Object.keys(invite.dataGrants).length) {
+      entry.dataGrants = { ...invite.dataGrants };
+    }
+    if (args.profile) {
+      const profile: Record<string, unknown> = {};
+      if (args.profile.languages?.length) profile.languages = [...args.profile.languages];
+      if (args.profile.neighborhood) profile.neighborhood = args.profile.neighborhood;
+      if (args.profile.vehicle) profile.vehicle = args.profile.vehicle;
+      if (args.profile.availability?.length) profile.availability = [...args.profile.availability];
+      if (args.profile.skills) profile.skills = args.profile.skills;
+      if (Object.keys(profile).length) {
+        entry.profile = profile as RosterMember["profile"];
+      }
+    }
     d.members[peerId] = entry;
   });
   return handle.doc()!.members[peerId]!;
+}
+
+/** Self-service: a member updates their OWN volunteer profile. */
+export function updateOwnProfile(
+  handle: DocHandle<RosterDoc>,
+  peerId: string,
+  profile: import("./schema.ts").VolunteerProfile
+): void {
+  if (!isActiveMember(handle.doc(), peerId)) {
+    throw new NotAuthorized("only active members can edit their profile");
+  }
+  handle.change((d) => {
+    const m = d.members[peerId];
+    if (!m) return;
+    const next: Record<string, unknown> = {};
+    if (profile.languages?.length) next.languages = [...profile.languages];
+    if (profile.neighborhood?.trim()) next.neighborhood = profile.neighborhood.trim();
+    if (profile.vehicle && profile.vehicle !== "none") next.vehicle = profile.vehicle;
+    if (profile.availability?.length) next.availability = [...profile.availability];
+    if (profile.skills?.trim()) next.skills = profile.skills.trim();
+    if (Object.keys(next).length) {
+      m.profile = next as RosterMember["profile"];
+    } else if (m.profile !== undefined) {
+      delete m.profile;
+    }
+  });
 }
 
 /* Invite links ------------------------------------------------------------ */

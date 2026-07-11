@@ -187,11 +187,25 @@
       jobCard({
         id: "website-data",
         icon: "🌐",
-        title: "Publish website request data",
+        title: "Download website counts (JSON)",
         desc:
-          "Regenerates the public open-request counts JSON that the BAM website reads. Normally runs hourly (UpdateWebsiteRequestData).",
-        runLabel: "Publish now",
-        run: () => api.websiteData(),
+          "Generates the public open-request counts file a website can read and downloads it to this device — counts only, no personal data. (There's no server here to publish to; you upload the file wherever your site lives.)",
+        runLabel: "Generate & download",
+        run: async () => {
+          const out = await api.websiteData();
+          // Actually hand the operator the artifact — a button that "publishes"
+          // to nowhere reads as broken.
+          const blob = new Blob([JSON.stringify(out, null, 2)], { type: "application/json" });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = "website-requests.json";
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          setTimeout(() => URL.revokeObjectURL(url), 5000);
+          return out;
+        },
         renderReport: websiteReport,
         // Website data always "succeeds"; never treated as empty.
         isEmpty: () => false,
@@ -478,7 +492,7 @@
           h(
             "div",
             { class: "empty-state" },
-            h("div", {}, "No other devices yet — invite one from Your team.")
+            h("div", {}, "No other devices yet — invite one from Volunteers.")
           )
         );
         return;
@@ -573,6 +587,16 @@
      re-renders the card in place. */
   /* Item policies — per-item cooldowns + seasonal windows ------------------ */
 
+  // Plain-English item name: catalog labels are trilingual compound strings
+  // ("Jabón / Soap / 肥皂") — the policy table only needs one language.
+  function shortItemLabel(label, key) {
+    const parts = String(label || "")
+      .split("/")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    return parts[1] || parts[0] || key;
+  }
+
   function renderItemPoliciesCard(parent) {
     const card = h("div", { class: "card stack" });
     parent.append(card);
@@ -581,7 +605,7 @@
       h(
         "p",
         { class: "muted", style: { margin: "0" } },
-        "After a delivery, re-requests of an item wait its cooldown before re-entering outreach — a first delivery is never delayed, and the form tells people the rule. Seasonal windows (MM-DD) pause an item outside its season; \"paused\" hides it entirely."
+        "“Wait” paces repeat requests: after an item is delivered, the same household waits that many days before their re-request goes back into outreach. First-time requests are never delayed, and the form tells people the rule. A season keeps an item on the form only part of the year; “off” hides it entirely."
       )
     );
     const listWrap = h("div", {});
@@ -591,37 +615,46 @@
     Promise.all([api.catalog(), api.itemPolicies()])
       .then(([cat, policies]) => {
         clear(listWrap);
-        const rows = (cat.goods || []).concat(cat.social_services || []).map((t) => {
+
+        const headerRow = h(
+          "div",
+          { class: "policy-row policy-row--head" },
+          h("span", {}, "Item"),
+          h("span", {}, "Wait (days)"),
+          h("span", {}, "Season starts"),
+          h("span", {}, "Season ends"),
+          h("span", {}, "Off"),
+          h("span", {}, "")
+        );
+
+        const policyRow = (t) => {
           const p = policies[t.key] || {};
           const cooldown = h("input", {
             class: "input",
             type: "number",
             min: "0",
             value: p.cooldown_days != null ? String(p.cooldown_days) : "",
-            placeholder: "days",
-            title: "Cooldown days after a delivery (blank = none)",
-            style: { width: "72px" },
+            placeholder: "—",
+            "aria-label": `${shortItemLabel(t.label, t.key)}: days to wait after a delivery`,
           });
           const from = h("input", {
             class: "input",
             type: "text",
             value: p.season_from || "",
             placeholder: "MM-DD",
-            title: "Season start (blank = year-round)",
-            style: { width: "76px" },
+            "aria-label": `${shortItemLabel(t.label, t.key)}: season start (MM-DD)`,
           });
           const until = h("input", {
             class: "input",
             type: "text",
             value: p.season_until || "",
             placeholder: "MM-DD",
-            title: "Season end",
-            style: { width: "76px" },
+            "aria-label": `${shortItemLabel(t.label, t.key)}: season end (MM-DD)`,
           });
           const disabled = h("input", {
             type: "checkbox",
             checked: !!p.disabled,
-            title: "Pause this item entirely",
+            "aria-label": `${shortItemLabel(t.label, t.key)}: hide from the form`,
           });
           const saveBtn = h(
             "button",
@@ -632,7 +665,7 @@
                 const mmdd = /^\d{2}-\d{2}$/;
                 if ((from.value.trim() && !mmdd.test(from.value.trim())) ||
                     (until.value.trim() && !mmdd.test(until.value.trim()))) {
-                  toast("Season dates must be MM-DD (e.g. 08-01).", "info");
+                  toast("Season dates look like 08-01 (month-day).", "info");
                   return;
                 }
                 saveBtn.disabled = true;
@@ -643,9 +676,9 @@
                     season_until: until.value.trim() || null,
                     disabled: disabled.checked,
                   });
-                  toast(`${t.label} policy saved.`, "success");
+                  toast(`${shortItemLabel(t.label, t.key)} saved.`, "success");
                 } catch (err) {
-                  toast((err && err.detail) || "Could not save the policy.", "error");
+                  toast((err && err.detail) || "Could not save.", "error");
                 } finally {
                   saveBtn.disabled = false;
                 }
@@ -654,33 +687,34 @@
             "Save"
           );
           return h(
-            "li",
-            { class: "list-item", style: { flexWrap: "wrap", gap: "var(--s2)" } },
-            h(
-              "div",
-              { class: "list-item__body", style: { minWidth: "140px" } },
-              h("div", { class: "list-item__label" }, t.label),
-              p.in_season === false
-                ? h("div", { class: "list-item__meta" }, "out of season now")
-                : null
-            ),
+            "div",
+            { class: "policy-row" },
             h(
               "span",
-              { class: "row", style: { gap: "6px", flexWrap: "wrap" } },
-              cooldown,
-              from,
-              until,
-              h(
-                "label",
-                { class: "row", style: { gap: "4px", cursor: "pointer" } },
-                disabled,
-                h("span", { class: "muted", style: { fontSize: "13px" } }, "paused")
-              ),
-              saveBtn
-            )
+              { class: "policy-row__name" },
+              shortItemLabel(t.label, t.key),
+              p.in_season === false && !p.disabled
+                ? h("span", { class: "badge", style: { marginLeft: "6px" } }, "out of season")
+                : null,
+              p.disabled ? h("span", { class: "badge badge-timeout", style: { marginLeft: "6px" } }, "off") : null
+            ),
+            cooldown,
+            from,
+            until,
+            h("span", { style: { textAlign: "center" } }, disabled),
+            saveBtn
           );
-        });
-        listWrap.append(h("ul", { class: "list" }, rows));
+        };
+
+        const goods = cat.goods || [];
+        const services = cat.social_services || [];
+        listWrap.append(
+          h("div", { class: "section-title" }, "Everyday goods"),
+          headerRow,
+          h("div", { class: "stack", style: { gap: "2px" } }, goods.map(policyRow)),
+          h("div", { class: "section-title", style: { marginTop: "var(--s4)" } }, "Social services"),
+          h("div", { class: "stack", style: { gap: "2px" } }, services.map(policyRow))
+        );
       })
       .catch((err) => {
         clear(listWrap);
@@ -1033,7 +1067,7 @@
           h(
             "div",
             { class: "empty-state" },
-            h("div", {}, "No other devices yet — invite one from Your team.")
+            h("div", {}, "No other devices yet — invite one from Volunteers.")
           )
         );
         return;

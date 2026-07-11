@@ -20,9 +20,36 @@ import {
   revokeMember,
   setCap,
   setRole,
+  updateOwnProfile,
   type InvitePayload,
 } from "./roster.ts";
-import type { Role, RosterMember } from "./schema.ts";
+import { LANGUAGES } from "./domain/catalog.ts";
+import type { Role, RosterMember, VolunteerProfile } from "./schema.ts";
+
+const AVAILABILITY = ["Weekday mornings", "Weekday afternoons", "Weekday evenings", "Weekends"];
+const VEHICLES: Array<[string, string]> = [
+  ["", "No vehicle"],
+  ["bike", "Bike / cargo bike"],
+  ["car", "Car"],
+  ["van", "Van or truck"],
+];
+
+function langShortLabel(label: string): string {
+  const parts = label.split("/").map((s) => s.trim()).filter(Boolean);
+  return parts[1] ?? parts[0] ?? label;
+}
+
+/** One-line human summary of a volunteer profile for the members list. */
+function profileSummary(p: VolunteerProfile | undefined): string {
+  if (!p) return "";
+  const bits: string[] = [];
+  if (p.languages?.length) bits.push(`🗣 ${p.languages.map(langShortLabel).join(", ")}`);
+  if (p.neighborhood) bits.push(`📍 ${p.neighborhood}`);
+  if (p.vehicle) bits.push(`🚗 ${p.vehicle}`);
+  if (p.availability?.length) bits.push(`🕐 ${p.availability.join(", ")}`);
+  if (p.skills) bits.push(`💪 ${p.skills}`);
+  return bits.join(" · ");
+}
 
 interface BamNamespace {
   h: (tag: string, attrs?: unknown, ...children: unknown[]) => HTMLElement;
@@ -57,7 +84,7 @@ export function registerRosterView(store: BamStore): void {
     const heading = h(
       "div",
       { class: "view-heading" },
-      h("h1", {}, "Your team"),
+      h("h1", {}, "Volunteers"),
       h(
         "p",
         { class: "muted" },
@@ -305,6 +332,9 @@ export function registerRosterView(store: BamStore): void {
             { class: "list-item__meta" },
             m.lastSeenAt ? `Last seen ${BAM.fmtDateTime(m.lastSeenAt)}` : "Last seen: —"
           ),
+          m.profile && profileSummary(m.profile)
+            ? h("div", { class: "list-item__meta" }, profileSummary(m.profile))
+            : null,
           capChips(m)
         ),
         h(
@@ -404,6 +434,31 @@ export function registerRosterView(store: BamStore): void {
       type: "number",
       value: "20",
     }) as HTMLInputElement;
+    // Permission presets baked into the invite: whoever scans it arrives with
+    // exactly these — no follow-up grants for the admin to remember.
+    const permDistros = h("input", { type: "checkbox", id: "invite-perm-distros", checked: true }) as HTMLInputElement;
+    const permContactFix = h("input", { type: "checkbox", id: "invite-perm-contactfix" }) as HTMLInputElement;
+    const permPartnerSync = h("input", { type: "checkbox", id: "invite-perm-partnersync" }) as HTMLInputElement;
+    const permRow = (box: HTMLInputElement, label: string, hint: string): HTMLElement =>
+      h(
+        "label",
+        { class: "list-item list-item--selectable", for: box.id, style: { cursor: "pointer" } },
+        box,
+        h(
+          "div",
+          { class: "list-item__body" },
+          h("div", { class: "list-item__label" }, label),
+          h("div", { class: "list-item__meta" }, hint)
+        )
+      );
+    const invitePerms = h(
+      "div",
+      { class: "field" },
+      h("span", { class: "label" }, "People who join with this QR can…"),
+      permRow(permDistros, "See distros & shifts", "Uncheck for helpers who shouldn't see event data at all."),
+      permRow(permContactFix, "Fix phone numbers & emails", "For trusted data-cleanup volunteers. Every fix is logged."),
+      permRow(permPartnerSync, "Run partner syncs", "Apply a partner org's fulfillment lists.")
+    );
     const inviteResult = h("div", { class: "stack" });
 
     const invitesList = () => {
@@ -446,10 +501,17 @@ export function registerRosterView(store: BamStore): void {
         return;
       }
       try {
+        const caps: { [cap: string]: boolean } = {};
+        if (permContactFix.checked) caps.contactFix = true;
+        if (permPartnerSync.checked) caps.partnerSync = true;
+        const dataGrants: { [key: string]: boolean } = {};
+        if (!permDistros.checked) dataGrants.distros = false;
         const { invite, secret } = createInvite(store.roster, store.peerId, {
           name,
           expiresInDays: Number(inviteDaysInput.value) || 7,
           maxUses: Number(inviteUsesInput.value) || 20,
+          ...(Object.keys(caps).length ? { caps } : {}),
+          ...(Object.keys(dataGrants).length ? { dataGrants } : {}),
         });
         const config = JSON.parse(localStorage.getItem("bam-local-first-config") ?? "{}") as {
           endpoint?: string;
@@ -504,6 +566,7 @@ export function registerRosterView(store: BamStore): void {
             "Mint a QR code that pre-authorizes new volunteer devices: scan → name yourself → enrolled."
           ),
           h("div", { class: "field" }, h("label", { class: "label", for: "invite-name" }, "Invite name"), inviteNameInput),
+          invitePerms,
           h(
             "div",
             { class: "row" },
@@ -516,9 +579,106 @@ export function registerRosterView(store: BamStore): void {
         )
       : null;
 
-    container.append(heading, me, membersCard, addCard);
+    // ---- My profile: self-service volunteer details ------------------------
+    const myMember = roster.members[store.peerId];
+    let myProfileCard: HTMLElement | null = null;
+    if (myMember && !myMember.revokedAt) {
+      const p = myMember.profile ?? {};
+      const selLangs = new Set(p.languages ?? []);
+      const selAvail = new Set(p.availability ?? []);
+      const chip = (label: string, display: string, set: Set<string>): HTMLElement => {
+        const on = set.has(label);
+        const el = h(
+          "button",
+          {
+            type: "button",
+            class: "langchip" + (on ? " langchip--on" : ""),
+            "aria-pressed": String(on),
+            onclick: () => {
+              if (set.has(label)) set.delete(label);
+              else set.add(label);
+              el.classList.toggle("langchip--on", set.has(label));
+              el.setAttribute("aria-pressed", String(set.has(label)));
+            },
+          },
+          display
+        );
+        return el;
+      };
+      const neighborhoodInput = h("input", {
+        class: "input",
+        value: p.neighborhood ?? "",
+        placeholder: "e.g. Bushwick",
+        "aria-label": "Neighborhood",
+      }) as HTMLInputElement;
+      const vehicleSelect = h("select", { class: "input", "aria-label": "Vehicle" }) as HTMLSelectElement;
+      for (const [value, label] of VEHICLES) {
+        const opt = document.createElement("option");
+        opt.value = value;
+        opt.textContent = label;
+        if ((p.vehicle ?? "") === value) opt.selected = true;
+        vehicleSelect.append(opt);
+      }
+      const skillsInput = h("input", {
+        class: "input",
+        value: p.skills ?? "",
+        placeholder: "e.g. nurse, can lift heavy, speaks some ASL",
+        "aria-label": "Skills",
+      }) as HTMLInputElement;
+      const saveProfile = h(
+        "button",
+        {
+          class: "btn btn-primary",
+          onclick: () => {
+            try {
+              updateOwnProfile(store.roster, store.peerId, {
+                languages: [...selLangs],
+                availability: [...selAvail],
+                neighborhood: neighborhoodInput.value,
+                vehicle: vehicleSelect.value,
+                skills: skillsInput.value,
+              });
+              toast("Profile saved — the team can now match you to shifts.", "success");
+              render(container);
+            } catch (err) {
+              toast(err instanceof Error ? err.message : String(err), "error");
+            }
+          },
+        },
+        "Save my profile"
+      );
+      myProfileCard = h(
+        "details",
+        { class: "card stack advanced" },
+        h("summary", {}, "🙋 My profile — help the team match you to shifts"),
+        h(
+          "div",
+          { class: "stack", style: { marginTop: "var(--s3)" } },
+          h(
+            "div",
+            { class: "field" },
+            h("span", { class: "label" }, "Languages I can work in"),
+            h("div", { class: "langpicker__grid" }, LANGUAGES.map((l) => chip(l, langShortLabel(l), selLangs)))
+          ),
+          h("div", { class: "field" }, h("span", { class: "label" }, "Where I'm based"), neighborhoodInput),
+          h("div", { class: "field" }, h("span", { class: "label" }, "Vehicle"), vehicleSelect),
+          h(
+            "div",
+            { class: "field" },
+            h("span", { class: "label" }, "When I can usually help"),
+            h("div", { class: "langpicker__grid" }, AVAILABILITY.map((a) => chip(a, a, selAvail)))
+          ),
+          h("div", { class: "field" }, h("span", { class: "label" }, "Anything else"), skillsInput),
+          saveProfile
+        )
+      );
+    }
+
+    container.append(heading, me);
+    if (myProfileCard) container.append(myProfileCard);
+    container.append(membersCard, addCard);
     if (inviteCard) container.append(inviteCard);
   }
 
-  BAM.registerView("roster", { title: "Roster", icon: "🔑", render });
+  BAM.registerView("roster", { title: "Volunteers", icon: "🤝", render });
 }

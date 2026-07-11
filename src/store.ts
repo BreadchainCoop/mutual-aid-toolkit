@@ -68,7 +68,12 @@ export interface OpenStoreOptions {
    * roster yet, redeem the invite (validated against the invite's
    * tokenHash/expiry by every replica) and enroll as a volunteer.
    */
-  invite?: { inviteId: string; secret: string; deviceName: string };
+  invite?: {
+    inviteId: string;
+    secret: string;
+    deviceName: string;
+    profile?: import("./schema.ts").VolunteerProfile;
+  };
 }
 
 export interface BamStore {

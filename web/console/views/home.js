@@ -99,7 +99,7 @@
         isAdmin
           ? [
               ["admin", "⚙️ Admin"],
-              ["roster", "🔑 Your team"],
+              ["roster", "🤝 Volunteers"],
               ["settings", "🎨 Settings"],
             ].map(([view, label]) =>
               h("a", { class: "btn btn-ghost", href: `#${view}` }, label)

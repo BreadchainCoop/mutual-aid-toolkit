@@ -239,11 +239,32 @@ export interface DistrosDoc {
   shiftSlots: { [id: string]: ShiftSlot };
 }
 
+/**
+ * A volunteer's self-described profile — collected on the QR join screen and
+ * editable in the Volunteers view. Used to match people to work: languages
+ * feed interpreter shifts, vehicle feeds driver slots, availability feeds
+ * scheduling conversations.
+ */
+export interface VolunteerProfile {
+  /** Full catalog language labels they can work in. */
+  languages?: string[];
+  /** Neighborhood / area, free text ("Bushwick", "Ridgewood"). */
+  neighborhood?: string;
+  /** "none" | "bike" | "car" | "van" (free string for anything else). */
+  vehicle?: string;
+  /** e.g. ["Weekday mornings", "Weekends"]. */
+  availability?: string[];
+  /** Anything else they want the team to know ("RN", "can lift heavy"). */
+  skills?: string;
+}
+
 export interface RosterMember {
   /** Subduction PeerId (hex of the Ed25519 verifying key). */
   peerId: string;
   name: string;
   role: Role;
+  /** Self-described volunteer profile (see VolunteerProfile). */
+  profile?: VolunteerProfile;
   addedBy: string; // PeerId hex, or "invite:<inviteId>" for self-enrollment
   addedAt: string; // ISO datetime
   revokedAt?: string;
@@ -284,6 +305,11 @@ export interface RosterInvite {
   /** Soft cap, enforced at redemption time by honest clients and visible
    * to admins (see roster.ts for the trust discussion). */
   maxUses: number;
+  /** Permission presets applied to everyone who joins with this invite:
+   * capability grants (e.g. { contactFix: true }) … */
+  caps?: { [cap: string]: boolean };
+  /** …and data-domain grants (false = denied, e.g. { distros: false }). */
+  dataGrants?: { [domainKey: string]: boolean };
   revokedAt?: string;
   revokedBy?: string;
 }

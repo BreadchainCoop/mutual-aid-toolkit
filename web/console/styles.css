@@ -1077,3 +1077,45 @@ details.advanced[open] > summary::before {
   color: var(--muted);
   margin-top: 2px;
 }
+
+/* Item-policy table (Admin → Cooldowns & seasons) --------------------------- */
+
+.policy-row {
+  display: grid;
+  grid-template-columns: minmax(120px, 1.6fr) 84px 84px 84px 36px 64px;
+  gap: var(--s2);
+  align-items: center;
+  padding: 3px 0;
+}
+
+.policy-row .input {
+  min-height: 36px;
+  padding: var(--s1) var(--s2);
+  font-size: 14px;
+}
+
+.policy-row--head {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  border-bottom: 1px solid var(--border);
+  padding-bottom: var(--s1);
+  position: sticky;
+  top: var(--bar-h);
+}
+
+.policy-row__name {
+  font-weight: 600;
+  font-size: 14px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 640px) {
+  .policy-row {
+    grid-template-columns: minmax(90px, 1.2fr) 64px 72px 72px 30px 56px;
+    gap: var(--s1);
+  }
+}
