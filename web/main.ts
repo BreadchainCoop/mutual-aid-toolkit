@@ -12,10 +12,14 @@ import { WebCryptoSigner } from "@automerge/automerge-subduction";
 import { IndexedDBStorageAdapter } from "@automerge/automerge-repo-storage-indexeddb";
 import { DEFAULT_SYNC_ENDPOINT, learnedRelayPeers, openStore, type BamStore } from "../src/store.ts";
 import {
+  hasCap,
   isAdmin,
   parseInviteUrl,
   reinstateMember,
   revokeMember,
+  setCap,
+  setDomainGrant,
+  touchLastSeen,
   type InvitePayload,
 } from "../src/roster.ts";
 import { makeWebApi } from "../src/webapi.ts";
@@ -36,6 +40,7 @@ import viewOutreach from "./console/views/outreach.js?raw";
 import viewFurniture from "./console/views/furniture.js?raw";
 import viewServices from "./console/views/services.js?raw";
 import viewDistros from "./console/views/distros.js?raw";
+import viewShifts from "./console/views/shifts.js?raw";
 import viewAdmin from "./console/views/admin.js?raw";
 
 // Apply the console fonts + stylesheet (index.html no longer links them).
@@ -282,6 +287,7 @@ const CONSOLE_SCRIPTS: string[] = [
   viewFurniture,
   viewServices,
   viewDistros,
+  viewShifts,
   viewDashboard,
 ];
 
@@ -436,7 +442,9 @@ async function boot(): Promise<void> {
   w.BAM = w.BAM || {};
   w.BAM.api = makeWebApi(store);
   w.BAM.LANGUAGES = [...LANGUAGES];
-  // Roster-backed access control, exposed for the Admin view's revoke card.
+  // Roster-backed access control, exposed for the Admin/Roster views:
+  // membership + revocation, per-domain sync grants (enforced by the policy
+  // in roster.ts on every compliant peer), and app-level capability grants.
   w.BAM.access = {
     myPeerId: store.peerId,
     isAdmin: () => isAdmin(store.roster.doc(), store.peerId),
@@ -446,11 +454,36 @@ async function boot(): Promise<void> {
         name: m.name,
         role: m.role,
         revoked: !!m.revokedAt,
+        lastSeenAt: m.lastSeenAt ?? null,
       })),
     revoke: (peerId: string) => revokeMember(store.roster, store.peerId, peerId),
     reinstate: (peerId: string) => reinstateMember(store.roster, store.peerId, peerId),
+    // Data domains (Architecture A): grant/deny what each device may SYNC.
+    domains: () =>
+      Object.entries(store.roster.doc()?.dataDomains ?? {}).map(([key, d]) => ({
+        key,
+        label: d.name,
+        hint: `Denied devices stop syncing the ${d.name} data entirely.`,
+      })),
+    grantsFor: (peerId: string) =>
+      ({ ...(store.roster.doc()?.members[peerId]?.dataGrants ?? {}) }),
+    setGrant: (peerId: string, domainKey: string, allowed: boolean) =>
+      setDomainGrant(store.roster, store.peerId, peerId, domainKey, allowed),
+    // App-level capabilities (accident guards, e.g. "contactFix").
+    capsFor: (peerId: string) =>
+      ({ ...(store.roster.doc()?.members[peerId]?.caps ?? {}) }),
+    setCap: (peerId: string, cap: string, on: boolean) =>
+      setCap(store.roster, store.peerId, peerId, cap, on),
+    hasCap: (cap: string) => hasCap(store.roster.doc(), store.peerId, cap),
     onChange: (cb: () => void) => store.roster.on("change", cb),
   };
+  // Presence: stamp this device's lastSeenAt (throttled inside touchLastSeen)
+  // so admins can run access-recert sweeps against real activity.
+  try {
+    touchLastSeen(store.roster, store.peerId);
+  } catch {
+    /* non-members (mid-join races) simply don't stamp */
+  }
 
   for (const code of CONSOLE_SCRIPTS) runInlineScript(code);
   // The Admin view (expire / publish website data / scrub PII) is only

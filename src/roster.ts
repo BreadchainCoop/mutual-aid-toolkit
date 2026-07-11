@@ -25,6 +25,7 @@
  * once end-to-end auth ships in the sync server).
  */
 
+import { parseAutomergeUrl } from "@automerge/automerge-repo";
 import type { DocHandle } from "@automerge/automerge-repo";
 import type { RosterDoc, RosterInvite, RosterMember, Role } from "./schema.ts";
 import { newId, nowIso } from "./schema.ts";
@@ -119,6 +120,48 @@ export function isAdmin(roster: RosterDoc | undefined, peerId: string): boolean 
   return isActiveMember(roster, peerId) && member?.role === "admin";
 }
 
+/* Data domains — per-doc, per-member sync grants -------------------------- */
+
+/**
+ * The Subduction sedimentree id for an Automerge doc URL: the 16-byte
+ * binaryDocumentId as hex, zero-padded to 32 bytes (64 hex chars). Verified
+ * empirically against @automerge/automerge-repo@2.6.0-subduction.40 — the
+ * ids the policy hooks receive stringify to exactly this.
+ */
+export function sedimentreeIdForDocUrl(docUrl: string): string {
+  const { binaryDocumentId } = parseAutomergeUrl(docUrl as never);
+  let hex = "";
+  for (const b of binaryDocumentId) hex += b.toString(16).padStart(2, "0");
+  return hex + "0".repeat(32);
+}
+
+/**
+ * May `peerId` sync the given data domain? Missing grant = allowed
+ * (target-DENY: denying is the explicit act, so adding a new domain never
+ * cuts existing members off). Admins are always allowed.
+ */
+export function domainAllowed(
+  roster: RosterDoc | undefined,
+  peerId: string,
+  domainKey: string
+): boolean {
+  const member = roster?.members[peerId];
+  if (!member) return false;
+  if (member.role === "admin") return true;
+  return member.dataGrants?.[domainKey] !== false;
+}
+
+/** App-level capability check (e.g. "contactFix"). Admins have every cap. */
+export function hasCap(
+  roster: RosterDoc | undefined,
+  peerId: string,
+  cap: string
+): boolean {
+  if (isAdmin(roster, peerId)) return true;
+  if (!isActiveMember(roster, peerId)) return false;
+  return roster?.members[peerId]?.caps?.[cap] === true;
+}
+
 export interface RosterPolicyOptions {
   /**
    * Peers always allowed regardless of roster state — the relay server's
@@ -163,20 +206,67 @@ export function rosterPolicy(
     }
   };
 
+  /**
+   * Restricted-doc map: sedimentreeId (lowercase hex) → domain key, rebuilt
+   * from the live roster on every decision so newly-registered domains and
+   * grant flips apply immediately. Docs NOT in this map are governed only by
+   * roster membership — deny-by-default stays at the connect/member level,
+   * and only *registered domains* are additionally target-denied per member.
+   * (Keyhive itself fans out over many internal sedimentrees; blanket
+   * per-sedimentree denial would break sync — verified empirically.)
+   */
+  const restrictedDomains = (): Map<string, string> => {
+    const map = new Map<string, string>();
+    const domains = getRoster()?.dataDomains;
+    if (!domains) return map;
+    for (const [key, d] of Object.entries(domains)) {
+      try {
+        map.set(sedimentreeIdForDocUrl(d.docUrl).toLowerCase(), key);
+      } catch {
+        // Malformed docUrl: skip — never let a bad registry entry break sync.
+      }
+    }
+    return map;
+  };
+
+  /** Is this peer allowed to sync this specific sedimentree? Peers in
+   * `alwaysAllow` (own device, pinned relay) bypass domain denial: the relay
+   * must store-and-forward for the whole org, and this device must always be
+   * able to serve itself. */
+  const sedimentreeAllowed = (peerId: unknown, sedimentreeId: unknown): boolean => {
+    if (opts.trustAll) return true;
+    const id = String(peerId);
+    if (always.has(id)) return true;
+    const domainKey = restrictedDomains().get(String(sedimentreeId).toLowerCase());
+    if (!domainKey) return true;
+    return domainAllowed(getRoster(), id, domainKey);
+  };
+
   return {
     async authorizeConnect(peerId) {
       assertAllowed(peerId, "connect");
     },
-    async authorizeFetch(peerId, _sedimentreeId) {
+    async authorizeFetch(peerId, sedimentreeId) {
       assertAllowed(peerId, "fetch");
+      if (!sedimentreeAllowed(peerId, sedimentreeId)) {
+        throw new NotAuthorized(
+          `peer ${String(peerId)} is denied the data domain of ${String(sedimentreeId)} (fetch)`
+        );
+      }
     },
-    async authorizePut(requestor, _author, _sedimentreeId) {
+    async authorizePut(requestor, _author, sedimentreeId) {
       // The requestor must be authorized; the original author may be a
       // since-revoked member whose historical commits are still valid.
       assertAllowed(requestor, "put");
+      if (!sedimentreeAllowed(requestor, sedimentreeId)) {
+        throw new NotAuthorized(
+          `peer ${String(requestor)} is denied the data domain of ${String(sedimentreeId)} (put)`
+        );
+      }
     },
     async filterAuthorizedFetch(peerId, ids) {
-      return allowed(peerId) ? ids : [];
+      if (!allowed(peerId)) return [];
+      return ids.filter((id) => sedimentreeAllowed(peerId, id));
     },
   };
 }
@@ -275,6 +365,105 @@ export function setRole(
       delete m.inviteId;
       delete m.inviteProof;
     }
+  });
+}
+
+/**
+ * Register a grantable data domain (e.g. "distros" → its doc URL). Admin-only,
+ * except bootstrap: the org-creating device registers domains before any
+ * roster entry exists mid-`openStore`, mirroring addMember's bootstrap path.
+ */
+export function registerDataDomain(
+  handle: DocHandle<RosterDoc>,
+  actor: string,
+  domain: { key: string; name: string; docUrl: string },
+  now: string = nowIso()
+): void {
+  const doc = handle.doc();
+  const bootstrap = Object.keys(doc?.members ?? {}).length === 0;
+  if (!bootstrap && !isAdmin(doc, actor)) {
+    throw new NotAuthorized(`peer ${actor} is not an active admin`);
+  }
+  handle.change((d) => {
+    if (!d.dataDomains) d.dataDomains = {};
+    d.dataDomains[domain.key] = {
+      name: domain.name,
+      docUrl: domain.docUrl,
+      createdAt: now,
+    };
+  });
+}
+
+/** Admin action: grant (true) or deny (false) a member's access to a data
+ * domain. Granting removes the deny mark (missing = allowed). Enforced at
+ * the sync layer by every compliant peer via rosterPolicy. */
+export function setDomainGrant(
+  handle: DocHandle<RosterDoc>,
+  actor: string,
+  peerId: string,
+  domainKey: string,
+  allowed: boolean
+): void {
+  const doc = handle.doc();
+  if (!isAdmin(doc, actor)) {
+    throw new NotAuthorized(`peer ${actor} is not an active admin`);
+  }
+  const member = doc?.members[peerId];
+  if (!member) throw new Error(`no roster member ${peerId}`);
+  if (!allowed && member.role === "admin") {
+    throw new NotAuthorized("admins always see every domain — demote first");
+  }
+  handle.change((d) => {
+    const m = d.members[peerId];
+    if (!m) return;
+    if (allowed) {
+      if (m.dataGrants) delete m.dataGrants[domainKey];
+    } else {
+      if (!m.dataGrants) m.dataGrants = {};
+      m.dataGrants[domainKey] = false;
+    }
+  });
+}
+
+/** Admin action: grant or remove an app-level capability (e.g. "contactFix"). */
+export function setCap(
+  handle: DocHandle<RosterDoc>,
+  actor: string,
+  peerId: string,
+  cap: string,
+  on: boolean
+): void {
+  const doc = handle.doc();
+  if (!isAdmin(doc, actor)) {
+    throw new NotAuthorized(`peer ${actor} is not an active admin`);
+  }
+  if (!doc?.members[peerId]) throw new Error(`no roster member ${peerId}`);
+  handle.change((d) => {
+    const m = d.members[peerId];
+    if (!m) return;
+    if (on) {
+      if (!m.caps) m.caps = {};
+      m.caps[cap] = true;
+    } else if (m.caps) {
+      delete m.caps[cap];
+    }
+  });
+}
+
+/** Self-service: a device stamps its own lastSeenAt (at boot). Throttled to
+ * once per hour so routine opens don't churn the roster doc. */
+export function touchLastSeen(
+  handle: DocHandle<RosterDoc>,
+  peerId: string,
+  now: string = nowIso()
+): void {
+  const member = handle.doc()?.members[peerId];
+  if (!member) return;
+  const last = member.lastSeenAt;
+  if (last && new Date(now).getTime() - new Date(last).getTime() < 3_600_000) return;
+  handle.change((d) => {
+    const m = d.members[peerId];
+    if (m) m.lastSeenAt = now;
   });
 }
 

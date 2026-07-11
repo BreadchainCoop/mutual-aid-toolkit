@@ -19,9 +19,17 @@
 
 import { Repo, initSubduction } from "@automerge/automerge-repo";
 import type { DocHandle, StorageAdapterInterface } from "@automerge/automerge-repo";
-import { emptyBamDoc, emptyRosterDoc, nowIso } from "./schema.ts";
-import type { BamDoc, OrgConfig, RosterDoc } from "./schema.ts";
-import { addMember, isActiveMember, redeemInvite, rosterPolicy } from "./roster.ts";
+import { emptyBamDoc, emptyDistrosDoc, emptyRosterDoc, nowIso } from "./schema.ts";
+import type { BamDoc, DistrosDoc, OrgConfig, RosterDoc } from "./schema.ts";
+import {
+  addMember,
+  domainAllowed,
+  isActiveMember,
+  isAdmin,
+  redeemInvite,
+  registerDataDomain,
+  rosterPolicy,
+} from "./roster.ts";
 
 /** Matches the Signer interface of @automerge/automerge-subduction. */
 export interface SignerLike {
@@ -68,6 +76,13 @@ export interface BamStore {
   peerId: string;
   roster: DocHandle<RosterDoc>;
   base: DocHandle<BamDoc>;
+  /**
+   * The distros/shifts doc — the first grantable data domain. Undefined when
+   * this device is DENIED the domain (the policy on other peers refuses to
+   * serve it), or in a legacy org where no admin has booted since the split
+   * (readers fall back to the legacy base.distros rows).
+   */
+  distros?: DocHandle<DistrosDoc>;
 }
 
 async function findWithRetry<T>(
@@ -108,6 +123,7 @@ export async function openStore(opts: OpenStoreOptions): Promise<BamStore> {
 
   let roster: DocHandle<RosterDoc>;
   let base: DocHandle<BamDoc>;
+  let distros: DocHandle<DistrosDoc> | undefined;
   const now = nowIso();
 
   if (opts.rosterUrl) {
@@ -123,15 +139,24 @@ export async function openStore(opts: OpenStoreOptions): Promise<BamStore> {
     const baseUrl = roster.doc()?.baseDocUrl;
     if (!baseUrl) throw new Error("roster has no baseDocUrl (org not fully initialized)");
     base = await findWithRetry<BamDoc>(repo, baseUrl);
+    distros = await resolveDistrosDoc(repo, roster, base, peerId, now);
   } else {
     const org = opts.createOrg ?? "My Mutual Aid";
     roster = repo.create<RosterDoc>(emptyRosterDoc(org, now));
     box.roster = roster;
     const orgConfig: OrgConfig = { name: org, ...(opts.orgConfig ?? {}) };
     base = repo.create<BamDoc>(emptyBamDoc(org, now, orgConfig));
+    distros = repo.create<DistrosDoc>(emptyDistrosDoc(org, now));
     roster.change((d) => {
       d.baseDocUrl = base.url;
     });
+    // Register the first grantable domain, then bootstrap the admin (both
+    // use the empty-roster bootstrap path; order keeps them consistent).
+    registerDataDomain(roster, peerId, {
+      key: "distros",
+      name: "Distros & shifts",
+      docUrl: distros.url,
+    }, now);
     // Bootstrap: the creating device becomes the first admin.
     addMember(roster, peerId, {
       peerId,
@@ -140,7 +165,63 @@ export async function openStore(opts: OpenStoreOptions): Promise<BamStore> {
     }, now);
   }
 
-  return { repo, peerId, roster, base };
+  return { repo, peerId, roster, base, distros };
+}
+
+/**
+ * Locate (or, for admins of pre-split orgs, create) the distros doc.
+ *
+ * - Domain registered + this device allowed → find it (short retry; the
+ *   relay may not have it yet — treat as temporarily unavailable, not fatal).
+ * - Domain registered + this device DENIED → don't even dial: other peers'
+ *   policies would refuse, and the console shows a no-access state instead.
+ * - No domain yet (org predates the split): an ADMIN device performs the
+ *   one-time migration — create the doc, move legacy base.distros rows into
+ *   it, register the domain. Non-admin devices keep reading the legacy rows.
+ */
+async function resolveDistrosDoc(
+  repo: Repo,
+  roster: DocHandle<RosterDoc>,
+  base: DocHandle<BamDoc>,
+  peerId: string,
+  now: string
+): Promise<DocHandle<DistrosDoc> | undefined> {
+  const rosterDoc = roster.doc();
+  const registered = rosterDoc?.dataDomains?.["distros"];
+  if (registered) {
+    if (!domainAllowed(rosterDoc, peerId, "distros")) return undefined;
+    try {
+      return await findWithRetry<DistrosDoc>(repo, registered.docUrl, {
+        attempts: 4,
+        delayMs: 1000,
+      });
+    } catch {
+      return undefined; // offline/unsynced yet — console degrades gracefully
+    }
+  }
+  if (!isAdmin(rosterDoc, peerId)) return undefined;
+  const baseDoc = base.doc();
+  const handle = repo.create<DistrosDoc>(
+    emptyDistrosDoc(baseDoc?.meta.org ?? rosterDoc?.org ?? "", now)
+  );
+  const legacy = baseDoc?.distros ?? {};
+  const legacyIds = Object.keys(legacy);
+  if (legacyIds.length) {
+    handle.change((d) => {
+      for (const id of legacyIds) {
+        d.distros[id] = JSON.parse(JSON.stringify(legacy[id]));
+      }
+    });
+    base.change((d) => {
+      for (const id of legacyIds) delete d.distros[id];
+    });
+  }
+  registerDataDomain(roster, peerId, {
+    key: "distros",
+    name: "Distros & shifts",
+    docUrl: handle.url,
+  }, now);
+  return handle;
 }
 
 /**

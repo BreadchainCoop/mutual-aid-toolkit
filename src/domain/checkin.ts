@@ -135,6 +135,14 @@ export function fulfill(
       applyStatusChange(row, "Delivered", now);
       const key = fulfilledCountKey(onDate, row.type);
       d.fulfilledCounts[key] = (d.fulfilledCounts[key] ?? 0) + 1;
+      // A delivered request is no longer paced, and the delivery date feeds
+      // the per-item cooldown (see cooldowns.ts).
+      delete row.pacedUntil;
+      const h = d.households[row.householdId];
+      if (h) {
+        if (!h.lastDeliveredByType) h.lastDeliveredByType = {};
+        h.lastDeliveredByType[row.type] = onDate;
+      }
     };
     for (const id of requestIds) deliver(d.requests[id]!);
     for (const id of socialIds) deliver(d.socialServiceRequests[id]!);
@@ -198,6 +206,121 @@ export function searchByPhoneSuffix(doc: BamDoc, digits: string, limit = 20): Ho
     .filter((h) => h.phoneNumber !== undefined && h.phoneNumber.endsWith(suffix))
     .sort((a, b) => cmp(a.name ?? "", b.name ?? "") || cmp(a.id, b.id))
     .slice(0, limit);
+}
+
+/** Case-insensitive substring search on email — the recovery path when a
+ * recipient's stored phone is wrong. Skips anonymized households. */
+export function searchByEmail(doc: BamDoc, fragment: string): Household[] {
+  const needle = fragment.trim().toLowerCase();
+  if (!needle) return [];
+  return Object.values(doc.households)
+    .filter(
+      (h) =>
+        h.anonymizedAt === undefined &&
+        h.email !== undefined &&
+        h.email.toLowerCase().includes(needle)
+    )
+    .sort((a, b) => cmp(a.name ?? "", b.name ?? "") || cmp(a.id, b.id))
+    .slice(0, 20);
+}
+
+/**
+ * Fix a household's phone and/or email at check-in (the contact-fix cap).
+ *
+ * The phone goes through the same normalizer intake uses; an unparseable
+ * one throws rather than storing garbage. Every change appends an audit
+ * line to the household notes naming the actor and date — with only the
+ * LAST FOUR digits of either phone (the notes field outlives the phone
+ * fields in the PII scrub) and only the domain of a new email.
+ */
+export function updateContact(
+  handle: DocHandle<BamDoc>,
+  householdId: string,
+  patch: { phoneNumber?: string; email?: string },
+  actor: { peerId: string; name?: string },
+  now: string = nowIso()
+): Household {
+  const existing = handle.doc().households[householdId];
+  if (!existing) throw new Error(`Unknown household id ${householdId}`);
+
+  const changes: string[] = [];
+  let newPhone: string | undefined;
+  if (patch.phoneNumber !== undefined) {
+    const validation = normalizePhone(patch.phoneNumber);
+    if (!validation.valid || !validation.normalized) {
+      throw new Error(`invalid phone number: ${patch.phoneNumber}`);
+    }
+    newPhone = validation.normalized;
+    const oldLast4 = existing.phoneNumber ? existing.phoneNumber.slice(-4) : "none";
+    changes.push(`phone ****${oldLast4} → ****${newPhone.slice(-4)}`);
+  }
+  let newEmail: string | undefined;
+  if (patch.email !== undefined) {
+    const trimmed = patch.email.trim();
+    if (!trimmed.includes("@")) {
+      throw new Error(`invalid email address: ${patch.email}`);
+    }
+    newEmail = trimmed;
+    changes.push(`email → ${trimmed.slice(trimmed.lastIndexOf("@") + 1)}`);
+  }
+
+  const who = actor.name ?? actor.peerId.slice(0, 8);
+  handle.change((d) => {
+    const h = d.households[householdId]!;
+    if (newPhone !== undefined) {
+      h.phoneNumber = newPhone;
+      h.invalidPhoneNumber = false;
+    }
+    if (newEmail !== undefined) {
+      h.email = newEmail;
+      delete h.emailError;
+    }
+    if (changes.length) {
+      const line = `[contact fixed ${localDate(now)} by ${who}: ${changes.join("; ")}]`;
+      h.notes = h.notes ? `${h.notes}\n${line}` : line;
+    }
+    h.updatedAt = now;
+  });
+  return handle.doc().households[householdId]!;
+}
+
+/** Set (or clear, with note=null) the after-hours set-aside marker: items
+ * were bagged for this household to pick up later. */
+export function setSetAside(
+  handle: DocHandle<BamDoc>,
+  householdId: string,
+  note: string | null,
+  actor: { peerId: string; name?: string },
+  now: string = nowIso()
+): Household {
+  if (!handle.doc().households[householdId]) {
+    throw new Error(`Unknown household id ${householdId}`);
+  }
+  handle.change((d) => {
+    const h = d.households[householdId]!;
+    if (note === null) delete h.setAside;
+    else h.setAside = { note, at: now, by: actor.name ?? actor.peerId.slice(0, 8) };
+    h.updatedAt = now;
+  });
+  return handle.doc().households[householdId]!;
+}
+
+/** Toggle the needs-delivery flag (recipient can't come to the distro). */
+export function setNeedsDelivery(
+  handle: DocHandle<BamDoc>,
+  householdId: string,
+  on: boolean,
+  now: string = nowIso()
+): Household {
+  if (!handle.doc().households[householdId]) {
+    throw new Error(`Unknown household id ${householdId}`);
+  }
+  handle.change((d) => {
+    const h = d.households[householdId]!;
+    h.needsDelivery = on;
+    h.updatedAt = now;
+  });
+  return handle.doc().households[householdId]!;
 }
 
 export interface NoShowReport {

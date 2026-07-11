@@ -16,8 +16,9 @@
 
 import type { DocHandle } from "@automerge/automerge-repo";
 import type { BamDoc, Household, RequestRow, SocialServiceRequestRow } from "../schema.ts";
-import { newId, nowIso } from "../schema.ts";
+import { localDate, newId, nowIso } from "../schema.ts";
 import { BY_KEY, isSocialService, normalizeType } from "./catalog.ts";
+import { cooldownUntil, isDisabled, isInSeason, itemPolicyFor } from "./cooldowns.ts";
 import { hashPhone, normalizePhone, validateEmail } from "./validation.ts";
 
 /** Types whose requests get the form's bed details appended to their notes. */
@@ -33,6 +34,8 @@ export interface IntakePayload {
   name?: string;
   email?: string;
   languages?: string[];
+  /** The language outreach should lead with; also merged into `languages`. */
+  preferredLanguage?: string;
   requestTypes?: string[];
   furnitureItems?: string[];
   bedDetails?: string[];
@@ -53,6 +56,11 @@ export interface IntakeResult {
   createdSocialServiceRequestIds: string[];
   skippedDuplicateTypes: string[];
   unknownTypes: string[];
+  /** Created-but-paced types (per-item cooldown): outreach holds them until
+   * the date. Always present, [] when nothing was paced. */
+  pacedTypes: Array<{ type: string; until: string }>;
+  /** Types not created because they are disabled or out of season. */
+  outOfSeasonTypes: string[];
   phoneValid: boolean;
 }
 
@@ -157,6 +165,11 @@ export async function submitIntake(
   const createdRequestIds: string[] = [];
   const createdSocialServiceRequestIds: string[] = [];
   const skippedDuplicateTypes: string[] = [];
+  const pacedTypes: Array<{ type: string; until: string }> = [];
+  const outOfSeasonTypes: string[] = [];
+  // Policy checks read the pre-change doc: intake never mutates policies or
+  // delivery history, so the snapshot is safe inside the change callback.
+  const today = localDate(now);
 
   handle.change((d) => {
     if (createdHousehold) {
@@ -179,6 +192,12 @@ export async function submitIntake(
       if (hash) h.phoneHash = hash;
       if (email.normalized) h.email = email.normalized;
       if (email.error) h.emailError = email.error;
+      if (payload.preferredLanguage) {
+        h.preferredLanguage = payload.preferredLanguage;
+        if (!h.languages.includes(payload.preferredLanguage)) {
+          h.languages.push(payload.preferredLanguage);
+        }
+      }
       d.households[householdId] = h;
     } else {
       const h = d.households[householdId]!;
@@ -197,6 +216,12 @@ export async function submitIntake(
       for (const language of payload.languages ?? []) {
         if (!h.languages.includes(language)) h.languages.push(language);
       }
+      if (payload.preferredLanguage) {
+        h.preferredLanguage = payload.preferredLanguage;
+        if (!h.languages.includes(payload.preferredLanguage)) {
+          h.languages.push(payload.preferredLanguage);
+        }
+      }
       h.invalidPhoneNumber = !phone.valid;
       h.intlPhoneNumber = phone.international;
       if (normalizedHash) h.phoneHash = normalizedHash;
@@ -204,8 +229,14 @@ export async function submitIntake(
     }
 
     for (const key of goodsKeys) {
+      // Duplicate-skip takes precedence over the policy checks.
       if (hasOpen(d.requests, householdId, key)) {
         appendUnique(skippedDuplicateTypes, key);
+        continue;
+      }
+      const policy = itemPolicyFor(doc, key);
+      if (isDisabled(policy) || !isInSeason(policy, today)) {
+        appendUnique(outOfSeasonTypes, key);
         continue;
       }
       const id = newId();
@@ -233,6 +264,12 @@ export async function submitIntake(
       if (BED_DETAIL_TYPES.has(key) && payload.bedDetails?.length) {
         row.notes = appendNote(row.notes, payload.bedDetails.join("; "));
       }
+      // Re-request inside the type's cooldown: accepted but paced.
+      const until = cooldownUntil(doc, householdId, key, today);
+      if (until) {
+        row.pacedUntil = until;
+        pacedTypes.push({ type: key, until });
+      }
       d.requests[id] = row;
       createdRequestIds.push(id);
     }
@@ -240,6 +277,11 @@ export async function submitIntake(
     for (const key of socialKeys) {
       if (hasOpen(d.socialServiceRequests, householdId, key)) {
         appendUnique(skippedDuplicateTypes, key);
+        continue;
+      }
+      const policy = itemPolicyFor(doc, key);
+      if (isDisabled(policy) || !isInSeason(policy, today)) {
+        appendUnique(outOfSeasonTypes, key);
         continue;
       }
       const id = newId();
@@ -259,6 +301,11 @@ export async function submitIntake(
       if (payload.cityState) row.cityState = payload.cityState;
       if (payload.zipCode) row.zipCode = payload.zipCode;
       if (address) row.address = address;
+      const until = cooldownUntil(doc, householdId, key, today);
+      if (until) {
+        row.pacedUntil = until;
+        pacedTypes.push({ type: key, until });
+      }
       d.socialServiceRequests[id] = row;
       createdSocialServiceRequestIds.push(id);
     }
@@ -271,6 +318,8 @@ export async function submitIntake(
     createdSocialServiceRequestIds,
     skippedDuplicateTypes,
     unknownTypes,
+    pacedTypes,
+    outOfSeasonTypes,
     phoneValid: phone.valid,
   };
 }

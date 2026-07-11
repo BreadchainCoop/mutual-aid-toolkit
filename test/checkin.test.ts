@@ -5,7 +5,11 @@ import {
   fulfill,
   lookupByPhone,
   processNoShows,
+  searchByEmail,
   searchByName,
+  setNeedsDelivery,
+  setSetAside,
+  updateContact,
 } from "../src/domain/checkin.ts";
 import { fulfilledCountKey } from "../src/schema.ts";
 import { FIXED_NOW, TODAY, freshStore, makeHousehold, makeRequest } from "./helpers.ts";
@@ -122,5 +126,92 @@ describe("check-in (spec 6.3)", () => {
     expect(second.timedOutHouseholdIds).toEqual([h.id]);
     doc = store.base.doc();
     expect(doc.requests[req.id]!.status).toBe("Timeout");
+  });
+});
+
+describe("contact fixes and check-in flags", () => {
+  const ACTOR = { peerId: "a1b2c3d4e5f60708", name: "Maria" };
+
+  it("updateContact rejects garbage phones and keeps full numbers out of notes", async () => {
+    const store = await freshStore();
+    const h = makeHousehold(store.base, {
+      phoneNumber: "+17185550100",
+      invalidPhoneNumber: true,
+    });
+
+    expect(() =>
+      updateContact(store.base, h.id, { phoneNumber: "banana" }, ACTOR, FIXED_NOW)
+    ).toThrow(/invalid phone number/);
+    expect(() =>
+      updateContact(store.base, "nope", { phoneNumber: "+17185550142" }, ACTOR, FIXED_NOW)
+    ).toThrow(/Unknown household/);
+
+    const fixed = updateContact(
+      store.base, h.id, { phoneNumber: "(718) 555-0142" }, ACTOR, FIXED_NOW
+    );
+    expect(fixed.phoneNumber).toBe("+17185550142");
+    expect(fixed.invalidPhoneNumber).toBe(false);
+    // Audit line: actor + date + last-4 only — never the full numbers.
+    expect(fixed.notes).toBe(
+      `[contact fixed ${TODAY} by Maria: phone ****0100 → ****0142]`
+    );
+    expect(fixed.notes).not.toContain("5550100");
+    expect(fixed.notes).not.toContain("5550142");
+  });
+
+  it("updateContact fixes email with a domain-only audit line", async () => {
+    const store = await freshStore();
+    const h = makeHousehold(store.base, {
+      email: "old@example.com",
+      emailError: "Invalid email address: old@example",
+    });
+
+    expect(() =>
+      updateContact(store.base, h.id, { email: "not-an-email" }, ACTOR, FIXED_NOW)
+    ).toThrow(/invalid email/);
+
+    const fixed = updateContact(
+      store.base, h.id, { email: "maria@riseup.net" }, { peerId: "deadbeefcafe1234" }, FIXED_NOW
+    );
+    expect(fixed.email).toBe("maria@riseup.net");
+    expect(fixed.emailError).toBeUndefined();
+    // Falls back to the peerId prefix when the actor has no name.
+    expect(fixed.notes).toBe(`[contact fixed ${TODAY} by deadbeef: email → riseup.net]`);
+    expect(fixed.notes).not.toContain("maria@");
+  });
+
+  it("searchByEmail is case-insensitive and skips anonymized households", async () => {
+    const store = await freshStore();
+    const ana = makeHousehold(store.base, { name: "Ana", email: "Ana.Lopez@Example.com" });
+    makeHousehold(store.base, {
+      name: "Ghost",
+      email: "ghost.lopez@example.com",
+      anonymizedAt: FIXED_NOW,
+    });
+    makeHousehold(store.base, { name: "No Email" });
+
+    const matches = searchByEmail(store.base.doc(), "LOPEZ@example");
+    expect(matches.map((m) => m.id)).toEqual([ana.id]);
+    expect(searchByEmail(store.base.doc(), "")).toEqual([]);
+  });
+
+  it("setSetAside sets and clears the marker", async () => {
+    const store = await freshStore();
+    const h = makeHousehold(store.base);
+
+    const on = setSetAside(store.base, h.id, "2 bags on shelf B", ACTOR, FIXED_NOW);
+    expect(on.setAside).toEqual({ note: "2 bags on shelf B", at: FIXED_NOW, by: "Maria" });
+
+    const off = setSetAside(store.base, h.id, null, ACTOR, FIXED_NOW);
+    expect(off.setAside).toBeUndefined();
+    expect(() => setSetAside(store.base, "nope", "x", ACTOR, FIXED_NOW)).toThrow();
+  });
+
+  it("setNeedsDelivery toggles the flag", async () => {
+    const store = await freshStore();
+    const h = makeHousehold(store.base);
+    expect(setNeedsDelivery(store.base, h.id, true, FIXED_NOW).needsDelivery).toBe(true);
+    expect(setNeedsDelivery(store.base, h.id, false, FIXED_NOW).needsDelivery).toBe(false);
+    expect(() => setNeedsDelivery(store.base, "nope", true, FIXED_NOW)).toThrow();
   });
 });

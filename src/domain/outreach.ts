@@ -13,7 +13,7 @@
 import type { DocHandle } from "@automerge/automerge-repo";
 import type { BamDoc, Household, OutboxMessage } from "../schema.ts";
 import { fulfilledCountKey, localDate, newId, nowIso } from "../schema.ts";
-import { normalizeType } from "./catalog.ts";
+import { LANGUAGES, normalizeType } from "./catalog.ts";
 import { applyStatusChange, addDays } from "./lifecycle.ts";
 
 export const DEFAULT_MAX_MESSAGES = 240; // spec 6.2: 240 texts ~ 60 appointments
@@ -25,16 +25,37 @@ export interface OutreachFilters {
   excludeTextedWithinDays?: number;
   excludeAttendedWithinDays?: number;
   limit?: number;
+  /** "sms" (default) requires a usable phone; "email" selects households with
+   * a good email that are flagged for email outreach or unreachable by SMS. */
+  channel?: "sms" | "email";
+  /** Only households whose booked distro was cancelled (needsRebooking). */
+  rebookingOnly?: boolean;
 }
 
 export interface OutreachCandidate {
   householdId: string;
   name?: string;
   phoneNumber?: string;
+  email?: string;
   languages: string[];
+  preferredLanguage?: string;
+  needsRebooking: boolean;
+  /** Neither preferredLanguage nor languages overlaps the catalog LANGUAGES
+   * (an interpreter/translation gap the operator should see). */
+  unsupportedLanguage: boolean;
   openRequestTypes: string[];
   oldestOpenRequestAt?: string;
   lastTexted?: string;
+}
+
+/** Does the household speak (or prefer) any catalog-supported language? An
+ * empty language set counts as unsupported. */
+const SUPPORTED_LANGUAGES = new Set(LANGUAGES);
+function hasSupportedLanguage(h: Household): boolean {
+  if (h.preferredLanguage !== undefined && SUPPORTED_LANGUAGES.has(h.preferredLanguage)) {
+    return true;
+  }
+  return (h.languages ?? []).some((l) => SUPPORTED_LANGUAGES.has(l));
 }
 
 /**
@@ -45,6 +66,9 @@ export interface OutreachCandidate {
  * BAM.LANGUAGES), no current Booked appointment, and recency windows on
  * lastTexted / lastAttended. Ordered by the Date of Oldest Fulfillable
  * Request ascending.
+ *
+ * Accepted-but-paced rows (pacedUntil in the future) do not count as open
+ * request types; a household whose remaining types are all paced is omitted.
  */
 export function buildOutreachList(
   doc: BamDoc,
@@ -59,6 +83,7 @@ export function buildOutreachList(
   const openByHousehold = new Map<string, { types: Set<string>; oldest: string }>();
   for (const req of Object.values(doc.requests)) {
     if (req.status !== "Open") continue;
+    if (req.pacedUntil !== undefined && req.pacedUntil > today) continue; // per-item cooldown
     if (typeFilter && !typeFilter.has(req.type)) continue;
     const entry = openByHousehold.get(req.householdId);
     if (!entry) {
@@ -75,7 +100,14 @@ export function buildOutreachList(
   const candidates: OutreachCandidate[] = [];
   for (const [householdId, open] of openByHousehold) {
     const h = doc.households[householdId];
-    if (!h || !h.phoneNumber || h.invalidPhoneNumber) continue;
+    if (!h) continue;
+    if (filters.channel === "email") {
+      if (!h.email || h.emailError) continue;
+      if (!(h.needsEmailOutreach || !h.phoneNumber || h.invalidPhoneNumber)) continue;
+    } else {
+      if (!h.phoneNumber || h.invalidPhoneNumber) continue;
+    }
+    if (filters.rebookingOnly && h.needsRebooking !== true) continue;
     if (h.appointmentStatus === "Booked") continue;
     if (filters.languages?.length) {
       const overlap = filters.languages.some((l) => h.languages.includes(l));
@@ -93,7 +125,11 @@ export function buildOutreachList(
       householdId,
       name: h.name,
       phoneNumber: h.phoneNumber,
+      email: h.email,
       languages: [...h.languages],
+      preferredLanguage: h.preferredLanguage,
+      needsRebooking: h.needsRebooking === true,
+      unsupportedLanguage: !hasSupportedLanguage(h),
       openRequestTypes: [...open.types].sort(),
       oldestOpenRequestAt: open.oldest,
       lastTexted: h.lastTexted,
@@ -114,7 +150,9 @@ export function buildOutreachList(
 
 export interface BlastOptions {
   householdIds: string[];
-  template: string; // supports [FIRST_NAME] and [REQUEST_URL]
+  /** Supports {name} and {url} (bidi-isolated on substitution), plus the
+   * legacy [FIRST_NAME] / [REQUEST_URL] spellings (verbatim substitution). */
+  template: string;
   /** Optional per-language map (keys Spanish/Cantonese/English). When present,
    * each household is routed to its language with a Spanish+Cantonese+English
    * "All" fallback; otherwise `template` goes to everyone. */
@@ -122,6 +160,11 @@ export interface BlastOptions {
   maxMessages?: number;
   dryRun?: boolean;
   requestFormUrl?: string;
+  /** "email" queues to household.email with channel:"email" and stamps
+   * lastEmailed; unset/"sms" is the SMS path (stamps lastTexted). */
+  channel?: "sms" | "email";
+  /** Email subject line (channel "email" only). */
+  subject?: string;
   /** Injectable for deterministic tests; default random token. */
   tokenFactory?: () => string;
 }
@@ -136,6 +179,8 @@ export interface BlastReport {
   sent: number;
   skippedInvalid: number;
   skippedNoPhone: number;
+  /** Email blasts only: households with no email or a recorded email error. */
+  skippedNoEmail: number;
   notSentOverLimit: number;
   unknownHouseholdIds: string[];
   messages: BlastMessagePreview[];
@@ -146,29 +191,46 @@ function randomToken(): string {
   return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-export function renderTemplate(
-  template: string,
-  firstName: string,
-  requestUrl: string
-): string {
-  return template.replaceAll("[FIRST_NAME]", firstName).replaceAll("[REQUEST_URL]", requestUrl);
+/** U+2068 FIRST STRONG ISOLATE / U+2069 POP DIRECTIONAL ISOLATE. */
+const FSI = "⁨";
+const PDI = "⁩";
+
+/**
+ * Replace `{key}` placeholders with `vars[key]`. Every substituted value is
+ * wrapped in bidi isolates (U+2068 FSI … U+2069 PDI) so an RTL template —
+ * e.g. Arabic — cannot visually reorder LTR values like names, URLs, or
+ * addresses. Placeholders with no matching var are left verbatim.
+ */
+export function renderTemplate(template: string, vars: { [k: string]: string }): string {
+  return template.replace(/\{([^{}]+)\}/g, (placeholder, key: string) =>
+    Object.hasOwn(vars, key) ? `${FSI}${vars[key]}${PDI}` : placeholder
+  );
 }
 
 /** Order the "All" message concatenates the per-language texts in (verbatim
  * from bam-automation send_mass_text.py). */
 export const ALL_LANGUAGE_ORDER = ["Spanish", "Cantonese", "English"];
 
-/** Which language to text a household in (bam-automation determine_message_
- * language; exact if/elif order). Households store full trilingual labels, so
- * we substring-match the English middle token. */
-export function resolveSendLanguage(languages: string[]): string {
-  const joined = (languages ?? []).join(",");
+/** The if/elif chain shared by the preferred-language and languages passes. */
+function matchSendLanguage(joined: string): string | null {
   if (joined.includes("Spanish")) return "Spanish";
   if (joined.includes("Quechua")) return "Spanish";
   if (joined.includes("Mandarin")) return "Cantonese";
   if (joined.includes("Cantonese")) return "Cantonese";
   if (joined.includes("English")) return "English";
-  return "All";
+  return null;
+}
+
+/** Which language to text a household in (bam-automation determine_message_
+ * language; exact if/elif order). Households store full trilingual labels, so
+ * we substring-match the English middle token. `preferredLanguage` (the
+ * "lead with" language) takes precedence over the also-speaks array. */
+export function resolveSendLanguage(languages: string[], preferredLanguage?: string): string {
+  if (preferredLanguage) {
+    const preferred = matchSendLanguage(preferredLanguage);
+    if (preferred) return preferred;
+  }
+  return matchSendLanguage((languages ?? []).join(",")) ?? "All";
 }
 
 /** Concatenate the supplied per-language texts in ALL_LANGUAGE_ORDER, blank-
@@ -179,10 +241,15 @@ export function assembleAllMessage(templates: { [lang: string]: string }): strin
     .join("\n\n");
 }
 
-/** Pick a household's body: resolve its send-language, use that template, else
- * synthesize the "All" concatenation from whatever texts exist. */
-export function selectTemplate(templates: { [lang: string]: string }, languages: string[]): string {
-  const body = templates[resolveSendLanguage(languages)];
+/** Pick a household's body: resolve its send-language (preferredLanguage
+ * first), use that template, else synthesize the "All" concatenation from
+ * whatever texts exist. */
+export function selectTemplate(
+  templates: { [lang: string]: string },
+  languages: string[],
+  preferredLanguage?: string
+): string {
+  const body = templates[resolveSendLanguage(languages, preferredLanguage)];
   return body !== undefined ? body : assembleAllMessage(templates);
 }
 
@@ -191,7 +258,8 @@ export function selectTemplate(templates: { [lang: string]: string }, languages:
  * `smsOutbox`. Each message gets a unique randomized `?r=<token>` variant of
  * the form URL (spec 6.2 sequence diagram: "[REQUEST_URL] (randomized)" —
  * avoids provider spam filtering of identical bodies). Queuing stamps
- * `lastTexted`; `dryRun` builds the report without touching the doc.
+ * `lastTexted` (or `lastEmailed` when channel is "email"); `dryRun` builds
+ * the report without touching the doc.
  */
 export function queueBlast(
   handle: DocHandle<BamDoc>,
@@ -205,10 +273,13 @@ export function queueBlast(
   const makeToken = opts.tokenFactory ?? randomToken;
   const today = localDate(now);
 
+  const isEmail = opts.channel === "email";
+
   const report: BlastReport = {
     sent: 0,
     skippedInvalid: 0,
     skippedNoPhone: 0,
+    skippedNoEmail: 0,
     notSentOverLimit: 0,
     unknownHouseholdIds: [],
     messages: [],
@@ -221,13 +292,20 @@ export function queueBlast(
       report.unknownHouseholdIds.push(householdId);
       continue;
     }
-    if (!h.phoneNumber) {
-      report.skippedNoPhone += 1;
-      continue;
-    }
-    if (h.invalidPhoneNumber) {
-      report.skippedInvalid += 1;
-      continue;
+    if (isEmail) {
+      if (!h.email || h.emailError) {
+        report.skippedNoEmail += 1;
+        continue;
+      }
+    } else {
+      if (!h.phoneNumber) {
+        report.skippedNoPhone += 1;
+        continue;
+      }
+      if (h.invalidPhoneNumber) {
+        report.skippedInvalid += 1;
+        continue;
+      }
     }
     if (report.sent >= cap) {
       report.notSentOverLimit += 1;
@@ -237,21 +315,31 @@ export function queueBlast(
     const url = `${baseUrl}${joiner}r=${makeToken()}`;
     const firstName = (h.name ?? "").split(/\s+/)[0] ?? "";
     const rawBody = opts.templates
-      ? selectTemplate(opts.templates, h.languages ?? [])
+      ? selectTemplate(opts.templates, h.languages ?? [], h.preferredLanguage)
       : opts.template;
-    const body = renderTemplate(rawBody, firstName, url);
+    // {name}/{url} get bidi-isolated; the legacy bracket spellings predate the
+    // isolation and keep substituting verbatim for existing templates.
+    const body = renderTemplate(rawBody, { name: firstName, url })
+      .replaceAll("[FIRST_NAME]", firstName)
+      .replaceAll("[REQUEST_URL]", url);
+    const to = isEmail ? h.email! : h.phoneNumber!;
     report.sent += 1;
-    report.messages.push({ householdId, to: h.phoneNumber, body });
-    queued.push({
-      message: {
-        id: newId(),
-        to: h.phoneNumber,
-        body,
-        householdId,
-        queuedAt: now,
-        queuedBy,
-      },
-    });
+    report.messages.push({ householdId, to, body });
+    const message: OutboxMessage = {
+      id: newId(),
+      to,
+      body,
+      householdId,
+      queuedAt: now,
+      queuedBy,
+    };
+    if (isEmail) {
+      message.channel = "email";
+      if (opts.subject !== undefined) message.subject = opts.subject;
+    } else if (opts.channel === "sms") {
+      message.channel = "sms";
+    }
+    queued.push({ message });
   }
 
   if (!opts.dryRun && queued.length) {
@@ -260,7 +348,8 @@ export function queueBlast(
         d.smsOutbox[message.id] = message;
         const h = d.households[message.householdId];
         if (h) {
-          h.lastTexted = today;
+          if (message.channel === "email") h.lastEmailed = today;
+          else h.lastTexted = today;
           h.updatedAt = now;
         }
       }
@@ -289,12 +378,17 @@ export function confirmAppointment(
   return handle.doc().households[householdId]!;
 }
 
-export type OutreachOutcome = "no_response_timeout" | "wrong_number" | "no_longer_needed";
+export type OutreachOutcome =
+  | "no_response_timeout"
+  | "wrong_number"
+  | "no_longer_needed"
+  | "emailed";
 
 const OUTCOME_TAGS: Record<OutreachOutcome, string> = {
   no_response_timeout: "[no response]", // A4
   wrong_number: "[wrong number]", // A5
   no_longer_needed: "[no longer needed]", // A6
+  emailed: "[emailed]", // fell back to email; requests stay open
 };
 
 /**
@@ -302,6 +396,9 @@ const OUTCOME_TAGS: Record<OutreachOutcome, string> = {
  * Open rows of both kinds time out; wrong_number also flags the phone
  * invalid; a Booked appointment is cleared; the outcome tag (plus optional
  * note) lands on the household notes.
+ *
+ * The "emailed" outcome is the exception: it only stamps `lastEmailed` (we
+ * reached out by email and are still waiting) — nothing times out.
  */
 export function recordOutcome(
   handle: DocHandle<BamDoc>,
@@ -315,22 +412,26 @@ export function recordOutcome(
     throw new Error(`Unknown household id ${householdId}`);
   }
   handle.change((d) => {
-    for (const req of Object.values(d.requests)) {
-      if (req.householdId === householdId && req.status === "Open") {
-        applyStatusChange(req, "Timeout", now);
-      }
-    }
-    for (const req of Object.values(d.socialServiceRequests)) {
-      if (req.householdId === householdId && req.status === "Open") {
-        applyStatusChange(req, "Timeout", now);
-      }
-    }
     const h = d.households[householdId]!;
-    if (outcome === "wrong_number") h.invalidPhoneNumber = true;
-    if (h.appointmentStatus === "Booked") {
-      delete h.appointmentStatus;
-      delete h.appointmentDate;
-      delete h.appointmentTime;
+    if (outcome === "emailed") {
+      h.lastEmailed = localDate(now);
+    } else {
+      for (const req of Object.values(d.requests)) {
+        if (req.householdId === householdId && req.status === "Open") {
+          applyStatusChange(req, "Timeout", now);
+        }
+      }
+      for (const req of Object.values(d.socialServiceRequests)) {
+        if (req.householdId === householdId && req.status === "Open") {
+          applyStatusChange(req, "Timeout", now);
+        }
+      }
+      if (outcome === "wrong_number") h.invalidPhoneNumber = true;
+      if (h.appointmentStatus === "Booked") {
+        delete h.appointmentStatus;
+        delete h.appointmentDate;
+        delete h.appointmentTime;
+      }
     }
     const entry = note ? `${OUTCOME_TAGS[outcome]} ${note}` : OUTCOME_TAGS[outcome];
     h.notes = h.notes ? `${h.notes}\n${entry}` : entry;

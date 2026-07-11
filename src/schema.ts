@@ -37,6 +37,8 @@ export interface Household {
   email?: string;
   emailError?: string;
   languages: string[];
+  /** The language outreach should lead with; `languages` is "also speaks". */
+  preferredLanguage?: string;
   notes?: string;
   appointmentDate?: string; // YYYY-MM-DD
   appointmentTime?: string;
@@ -44,9 +46,17 @@ export interface Household {
   missedAppointmentCount: number;
   lastTexted?: string; // YYYY-MM-DD
   lastCalled?: string;
+  lastEmailed?: string;
   lastAttended?: string;
   needsDelivery: boolean;
   needsEmailOutreach: boolean;
+  /** Last delivery date per catalog type key — drives per-item cooldowns. */
+  lastDeliveredByType?: { [typeKey: string]: string }; // YYYY-MM-DD
+  /** Set when this household's distro was cancelled after booking. */
+  needsRebooking?: boolean;
+  rebookFrom?: string; // the cancelled YYYY-MM-DD
+  /** Items bagged for after-hours pickup (the "set-aside" flow). */
+  setAside?: { note: string; at: string; by: string };
   anonymizedAt?: string; // ISO datetime
   createdAt: string; // ISO datetime
   updatedAt: string;
@@ -58,6 +68,8 @@ export interface RequestRow {
   householdId: string;
   status: RequestStatus;
   notes?: string;
+  /** Accepted-but-paced (per-item cooldown); excluded from outreach until then. */
+  pacedUntil?: string; // YYYY-MM-DD
   requestOpenedAt: string; // ISO datetime
   statusLastUpdatedAt: string;
   processingDate?: string; // YYYY-MM-DD (+14 / +30 on close)
@@ -78,6 +90,9 @@ export interface SocialServiceRequestRow {
   householdId: string;
   status: RequestStatus;
   notes?: string;
+  /** Which partner org fulfills/fulfilled this (status × partner model). */
+  partnerOrg?: string;
+  pacedUntil?: string; // YYYY-MM-DD
   internetAccess: string[];
   roofAccessible: boolean;
   streetAddress?: string;
@@ -94,6 +109,8 @@ export interface SocialServiceRequestRow {
   updatedAt: string;
 }
 
+export type DistroStatus = "Scheduled" | "Cancelled";
+
 export interface Distro {
   id: string;
   dateTime: string; // ISO datetime
@@ -101,18 +118,64 @@ export interface Distro {
   durationMinutes?: number;
   appointments?: string;
   notes?: string;
+  /** Max booked appointments per 30-minute slot (unset = uncapped). */
+  slotCapacity?: number;
+  status?: DistroStatus; // unset = Scheduled (legacy rows)
+  cancelledAt?: string; // ISO datetime
+  cancelReason?: string;
+  createdAt: string;
+}
+
+/**
+ * A claimable staffing slot for a distro/event (the coverage board).
+ * Flat rows (not nested under a distro) so concurrent claims merge cleanly.
+ */
+export interface ShiftSlot {
+  id: string;
+  date: string; // YYYY-MM-DD
+  /** e.g. "Sunday distro", "Town hall". */
+  eventLabel: string;
+  /** e.g. "Check-in", "Lift", "Interpreter", "Driver". */
+  role: string;
+  /** Language the role requires, if any (e.g. "Spanish", "Arabic"). */
+  languageRequired?: string;
+  /** How many people this role needs. */
+  needed: number;
+  notes?: string;
+  /** Claims keyed by device PeerId — claim/release merge per-device. */
+  claims: { [peerId: string]: { name: string; at: string } };
+  createdBy: string; // PeerId hex
   createdAt: string;
 }
 
 export interface OutboxMessage {
   id: string;
-  to: string; // E.164
+  to: string; // E.164 phone, or an email address when channel === "email"
   body: string;
   householdId: string;
+  /** Delivery channel a gateway device should use. Unset = "sms" (legacy). */
+  channel?: "sms" | "email";
+  subject?: string; // email only
   queuedAt: string; // ISO datetime
   queuedBy: string; // PeerId hex of the device that queued it
   sentAt?: string; // stamped by whichever gateway device sends it
   error?: string;
+}
+
+/**
+ * Per-catalog-item operational policy (Maria's cooldown + seasonal asks).
+ * Keyed by catalog type key in BamDoc.itemPolicies.
+ */
+export interface ItemPolicy {
+  /** Days after a DELIVERY before the same household's re-request re-enters
+   * outreach. First requests are never paced. 0/unset = no cooldown. */
+  cooldownDays?: number;
+  /** Seasonal window as MM-DD (inclusive); wraps the year boundary when
+   * from > until (e.g. 12-01 → 02-28). Outside it, intake pauses the item. */
+  seasonFrom?: string;
+  seasonUntil?: string;
+  /** Hard off-switch: hide from intake entirely (independent of season). */
+  disabled?: boolean;
 }
 
 /**
@@ -134,6 +197,12 @@ export interface OrgConfig {
   };
   /** Per-view feature toggles, e.g. { furniture: false }. Missing = enabled. */
   features?: { [view: string]: boolean };
+  /** Referral cues shown to check-in volunteers ("invite them to scan the
+   * English-classes QR"). `showForTypes` limits the cue to households with
+   * those open request types; empty/missing = always show. */
+  referrals?: Array<{ label: string; url?: string; showForTypes?: string[] }>;
+  /** Partner orgs for the status × partner model + fulfillment sync. */
+  partnerOrgs?: string[];
 }
 
 export interface BamDoc {
@@ -147,10 +216,27 @@ export interface BamDoc {
   households: { [id: string]: Household };
   requests: { [id: string]: RequestRow };
   socialServiceRequests: { [id: string]: SocialServiceRequestRow };
+  /** LEGACY location of distros. New orgs keep this empty: distros live in
+   * their own doc (DistrosDoc) so access to them is grantable per device.
+   * Readers must merge both; writers target the distros doc. */
   distros: { [id: string]: Distro };
   /** Fulfilled Request Count, one entry per "YYYY-MM-DD|typeKey". */
   fulfilledCounts: { [dateAndType: string]: number };
   smsOutbox: { [id: string]: OutboxMessage };
+  /** Per-item cooldown/seasonal policy, keyed by catalog type key. */
+  itemPolicies?: { [typeKey: string]: ItemPolicy };
+}
+
+/**
+ * The DISTROS doc: distro events + the shift/coverage board, split from the
+ * base doc so an admin can grant/deny it per device — the policy target-denies
+ * this doc's sedimentree for denied peers (see roster.ts). This is the first
+ * grantable data domain ("distros"); the registry lives in RosterDoc.dataDomains.
+ */
+export interface DistrosDoc {
+  meta: { org: string; domain: "distros"; createdAt: string };
+  distros: { [id: string]: Distro };
+  shiftSlots: { [id: string]: ShiftSlot };
 }
 
 export interface RosterMember {
@@ -168,6 +254,15 @@ export interface RosterMember {
    * validate sha256(inviteProof) === invite.tokenHash. Visible to roster
    * members only; invites are short-lived and revocable. */
   inviteProof?: string;
+  /** Per-data-domain sync grants. Missing/true = allowed, false = DENIED —
+   * deny is the explicit act (target-deny), so upgrades never cut anyone off.
+   * Admins are always allowed regardless of this map. */
+  dataGrants?: { [domainKey: string]: boolean };
+  /** App-level capability grants (accident guards enforced in the adapter),
+   * e.g. { contactFix: true } lets a trusted volunteer edit phone/email. */
+  caps?: { [cap: string]: boolean };
+  /** Self-stamped by the device at boot — drives access-recert sweeps. */
+  lastSeenAt?: string; // ISO datetime
 }
 
 /**
@@ -205,6 +300,13 @@ export interface RosterDoc {
    * needs the roster URL + relay endpoint to find everything.
    */
   baseDocUrl?: string;
+  /**
+   * Grantable data domains: the docs the sync policy can target-deny per
+   * member (see RosterMember.dataGrants). Keyed by domain key ("distros").
+   */
+  dataDomains?: {
+    [key: string]: { name: string; docUrl: string; createdAt: string };
+  };
 }
 
 /** Automerge rejects explicit `undefined`; drop such keys (recursively) so an
@@ -237,6 +339,14 @@ export function emptyBamDoc(org: string, now: string, config?: OrgConfig): BamDo
 
 export function emptyRosterDoc(org: string, now: string): RosterDoc {
   return { org, createdAt: now, members: {} };
+}
+
+export function emptyDistrosDoc(org: string, now: string): DistrosDoc {
+  return {
+    meta: { org, domain: "distros", createdAt: now },
+    distros: {},
+    shiftSlots: {},
+  };
 }
 
 const ID_ALPHABET = "0123456789abcdefghjkmnpqrstvwxyz";

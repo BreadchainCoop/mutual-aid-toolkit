@@ -11,6 +11,8 @@ Everything you need to run your own copy.
   path, from both the admin and volunteer side.
 - **[Invite people & manage your team](invite-and-manage.md)** — QR invites,
   roles, and access control in full.
+- **[Control who sees which data](data-access.md)** — grant or deny each device
+  access to a data domain (starting with Distros), enforced at the sync layer.
 - **[Run a distribution](run-a-distribution.md)** — intake → outreach →
   check-in → distros, end to end.
 

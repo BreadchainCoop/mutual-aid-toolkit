@@ -141,4 +141,35 @@ describe("intake (spec 6.1)", () => {
     expect(h.phoneNumber).toBe("+17185550146");
     expect(h.anonymizedAt).toBeUndefined();
   });
+
+  it("stores preferredLanguage and merges it into languages", async () => {
+    const store = await freshStore();
+    const res = await submitIntake(store.base, {
+      phoneNumber: "+17185550147",
+      languages: ["Inglés / English / 英文"],
+      preferredLanguage: "Español / Spanish / 西班牙语",
+      requestTypes: ["soap"],
+    }, FIXED_NOW);
+
+    // The pacing fields are always present, [] with no policies configured.
+    expect(res.pacedTypes).toEqual([]);
+    expect(res.outOfSeasonTypes).toEqual([]);
+
+    const h = store.base.doc().households[res.householdId]!;
+    expect(h.preferredLanguage).toBe("Español / Spanish / 西班牙语");
+    expect(h.languages).toEqual([
+      "Inglés / English / 英文",
+      "Español / Spanish / 西班牙语",
+    ]);
+
+    // A re-request can update the preference on the existing household.
+    const second = await submitIntake(store.base, {
+      phoneNumber: "+17185550147",
+      preferredLanguage: "Inglés / English / 英文",
+    }, FIXED_NOW);
+    expect(second.createdHousehold).toBe(false);
+    expect(store.base.doc().households[res.householdId]!.preferredLanguage).toBe(
+      "Inglés / English / 英文"
+    );
+  });
 });

@@ -14,7 +14,9 @@ page is an honest account of what the toolkit protects, and what it doesn't yet
   command line keeps it in a `0600` file. You are your device's key.
 - **A roster gates access.** Only devices an admin has put on the roster can
   sync your org's data. Everyone else is turned away automatically, on every
-  device — this is deny-by-default, not a setting you have to switch on.
+  device — this is deny-by-default, not a setting you have to switch on. Beyond
+  the roster, an admin can also control *which data* each device sees, per
+  domain — see [Control who sees which data](data-access.md).
 - **Invites are revocable keys.** A QR/link invite lets a device self-enroll as
   a *volunteer* until it expires or you revoke it. It never grants admin.
 - **Works offline.** No network is required to use the app; sync catches up

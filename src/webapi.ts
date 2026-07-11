@@ -13,11 +13,13 @@ import type { BamStore } from "./store.ts";
 import type {
   BamDoc,
   Distro,
+  DistrosDoc,
   Household,
   RequestRow,
   SocialServiceRequestRow,
 } from "./schema.ts";
 import { newId, nowIso, localDate } from "./schema.ts";
+import { domainAllowed, hasCap, isAdmin } from "./roster.ts";
 import {
   BY_KEY,
   GOODS,
@@ -39,13 +41,42 @@ import {
 } from "./domain/checkin.ts";
 import {
   buildOutreachList,
-  confirmAppointment,
   queueBlast,
   recordOutcome,
   type OutreachOutcome,
 } from "./domain/outreach.ts";
 import { expireStale, scrubExpiredPii } from "./domain/lifecycle.ts";
 import { fulfilledCountsRange, openRequestCounts } from "./domain/metrics.ts";
+import {
+  isDisabled,
+  isInSeason,
+  itemPolicyFor,
+  setItemPolicy as setItemPolicyDomain,
+} from "./domain/cooldowns.ts";
+import {
+  SlotFullError,
+  bookAppointmentChecked,
+  cancelDistro as cancelDistroDomain,
+  createDistro as createDistroDomain,
+  slotUsage,
+} from "./domain/distros.ts";
+import {
+  searchByEmail,
+  setNeedsDelivery,
+  setSetAside,
+  updateContact,
+} from "./domain/checkin.ts";
+import { partnerSyncByPhone, setPartnerOrg } from "./domain/partners.ts";
+import { impactReport, waitlistReport } from "./domain/reporting.ts";
+import {
+  ShiftFullError,
+  claimShiftSlot,
+  createShiftSlot,
+  listShiftSlots,
+  releaseShiftSlot,
+  removeShiftSlot,
+  updateShiftSlot,
+} from "./domain/shifts.ts";
 
 export class ApiError extends Error {
   status: number;
@@ -74,7 +105,16 @@ function householdOut(h: Household): Record<string, unknown> {
     appointment_status: h.appointmentStatus ?? null,
     missed_appointment_count: h.missedAppointmentCount,
     last_texted: h.lastTexted ?? null,
+    last_emailed: h.lastEmailed ?? null,
     last_attended: h.lastAttended ?? null,
+    preferred_language: h.preferredLanguage ?? null,
+    needs_delivery: h.needsDelivery,
+    needs_email_outreach: h.needsEmailOutreach,
+    needs_rebooking: h.needsRebooking ?? false,
+    rebook_from: h.rebookFrom ?? null,
+    set_aside: h.setAside
+      ? { note: h.setAside.note, at: h.setAside.at, by: h.setAside.by }
+      : null,
   };
 }
 
@@ -87,6 +127,8 @@ function requestOut(r: RequestRow | SocialServiceRequestRow): Record<string, unk
     request_opened_at: r.requestOpenedAt,
     processing_date: r.processingDate ?? null,
     notes: r.notes ?? null,
+    paced_until: r.pacedUntil ?? null,
+    partner_org: (r as SocialServiceRequestRow).partnerOrg ?? null,
   };
 }
 
@@ -107,6 +149,10 @@ function distroOut(d: Distro): Record<string, unknown> {
     duration_minutes: d.durationMinutes ?? null,
     appointments: d.appointments ?? null,
     notes: d.notes ?? null,
+    slot_capacity: d.slotCapacity ?? null,
+    status: d.status ?? "Scheduled",
+    cancelled_at: d.cancelledAt ?? null,
+    cancel_reason: d.cancelReason ?? null,
   };
 }
 
@@ -162,6 +208,34 @@ const byName = (a: { name?: string }, b: { name?: string }) =>
 /** Build the `BAM.api`-compatible adapter over an open store. */
 export function makeWebApi(store: BamStore) {
   const doc = (): BamDoc => store.base.doc();
+  const distrosDoc = (): DistrosDoc | undefined => store.distros?.doc();
+  const roster = () => store.roster.doc();
+  const me = () => ({
+    peerId: store.peerId,
+    name: roster()?.members[store.peerId]?.name,
+  });
+  const amAdmin = () => isAdmin(roster(), store.peerId);
+  const requireAdmin = (what: string): void => {
+    if (!amAdmin()) throw new ApiError(403, `Only admins can ${what}.`);
+  };
+  const requireDistrosDoc = () => {
+    if (!store.distros) {
+      throw new ApiError(
+        403,
+        "This device doesn't have access to the Distros & shifts data."
+      );
+    }
+    return store.distros;
+  };
+  /** Every distro this device can see: the distros doc + legacy base rows. */
+  const allDistros = (): Distro[] => [
+    ...Object.values(doc().distros),
+    ...Object.values(distrosDoc()?.distros ?? {}),
+  ];
+  const distroOnDate = (date: string): Distro | undefined =>
+    allDistros().find(
+      (d) => localDate(d.dateTime) === date && d.status !== "Cancelled"
+    );
 
   return {
     ApiError,
@@ -187,6 +261,42 @@ export function makeWebApi(store: BamStore) {
         phone_number: h.phoneNumber ?? null,
         languages: h.languages,
       }));
+    },
+    async searchByEmail(fragment: string) {
+      return searchByEmail(doc(), fragment).map((h) => ({
+        id: h.id,
+        name: h.name ?? null,
+        phone_number: h.phoneNumber ?? null,
+        email: h.email ?? null,
+        languages: h.languages,
+      }));
+    },
+    /** Can THIS device edit household contact info? (admins + contactFix cap) */
+    canFixContacts(): boolean {
+      return hasCap(roster(), store.peerId, "contactFix");
+    },
+    async updateContact(id: string, body: { phone_number?: string; email?: string }) {
+      if (!hasCap(roster(), store.peerId, "contactFix")) {
+        throw new ApiError(
+          403,
+          "This device isn't allowed to edit contact info — ask an admin for the contact-fix grant."
+        );
+      }
+      const patch: { phoneNumber?: string; email?: string } = {};
+      if (body.phone_number != null && String(body.phone_number).trim() !== "") {
+        patch.phoneNumber = String(body.phone_number);
+      }
+      if (body.email != null && String(body.email).trim() !== "") {
+        patch.email = String(body.email);
+      }
+      return householdOut(wrap(() => updateContact(store.base, id, patch, me())));
+    },
+    async setSetAside(id: string, body: { note?: string | null } = {}) {
+      const note = body.note == null || body.note === "" ? null : String(body.note);
+      return householdOut(wrap(() => setSetAside(store.base, id, note, me())));
+    },
+    async setNeedsDelivery(id: string, body: { on: boolean }) {
+      return householdOut(wrap(() => setNeedsDelivery(store.base, id, !!body.on)));
     },
     async householdView(id: string) {
       const h = doc().households[id];
@@ -232,6 +342,7 @@ export function makeWebApi(store: BamStore) {
         name: (payload.name as string) ?? undefined,
         email: (payload.email as string) ?? undefined,
         languages: (payload.languages as string[]) ?? [],
+        preferredLanguage: (payload.preferred_language as string) ?? undefined,
         requestTypes: (payload.request_types as string[]) ?? [],
         furnitureItems: (payload.furniture_items as string[]) ?? [],
         bedDetails: (payload.bed_details as string[]) ?? [],
@@ -252,6 +363,8 @@ export function makeWebApi(store: BamStore) {
         created_social_service_request_ids: result.createdSocialServiceRequestIds,
         skipped_duplicate_types: result.skippedDuplicateTypes,
         unknown_types: result.unknownTypes,
+        paced_types: result.pacedTypes.map((p) => ({ type: p.type, until: p.until })),
+        out_of_season_types: result.outOfSeasonTypes,
         phone_valid: result.phoneValid,
         already_processed: false,
       };
@@ -265,11 +378,17 @@ export function makeWebApi(store: BamStore) {
         excludeTextedWithinDays: (filters.exclude_texted_within_days as number) ?? 0,
         excludeAttendedWithinDays: (filters.exclude_attended_within_days as number) ?? 0,
         limit: (filters.limit as number) ?? undefined,
+        channel: (filters.channel as "sms" | "email") ?? undefined,
+        rebookingOnly: !!filters.rebooking_only,
       }).map((c) => ({
         household_id: c.householdId,
         name: c.name ?? null,
         phone_number: c.phoneNumber ?? null,
+        email: c.email ?? null,
         languages: c.languages,
+        preferred_language: c.preferredLanguage ?? null,
+        unsupported_language: c.unsupportedLanguage,
+        needs_rebooking: c.needsRebooking,
         open_request_types: c.openRequestTypes,
         oldest_open_request_at: c.oldestOpenRequestAt ?? null,
         last_texted: c.lastTexted ?? null,
@@ -281,6 +400,8 @@ export function makeWebApi(store: BamStore) {
         template?: string;
         templates?: { [lang: string]: string };
         max_messages?: number;
+        channel?: "sms" | "email";
+        subject?: string;
       } = {}
     ) {
       const report = queueBlast(
@@ -290,6 +411,8 @@ export function makeWebApi(store: BamStore) {
           template: body.template ?? "",
           templates: body.templates,
           maxMessages: body.max_messages ?? undefined,
+          channel: body.channel ?? undefined,
+          subject: body.subject ?? undefined,
         },
         nowIso(),
         store.peerId
@@ -299,6 +422,7 @@ export function makeWebApi(store: BamStore) {
         failed: 0, // messages are queued to the shared outbox, not sent inline
         skipped_invalid: report.skippedInvalid,
         skipped_no_phone: report.skippedNoPhone,
+        skipped_no_email: (report as { skippedNoEmail?: number }).skippedNoEmail ?? 0,
         not_sent_over_limit: report.notSentOverLimit,
         unknown_household_ids: report.unknownHouseholdIds,
         messages: report.messages.map((m) => ({
@@ -312,16 +436,36 @@ export function makeWebApi(store: BamStore) {
     },
     async bookAppointment(
       id: string,
-      body: { appointment_date: string; appointment_time: string }
+      body: { appointment_date: string; appointment_time: string; force?: boolean }
     ) {
-      return householdOut(
-        wrap(() =>
-          confirmAppointment(store.base, id, {
-            date: body.appointment_date,
-            time: body.appointment_time,
-          })
-        )
-      );
+      try {
+        return householdOut(
+          wrap(() =>
+            bookAppointmentChecked(
+              store.base,
+              distrosDoc(),
+              id,
+              { date: body.appointment_date, time: body.appointment_time },
+              { force: !!body.force }
+            )
+          )
+        );
+      } catch (err) {
+        if (err instanceof SlotFullError) {
+          throw new ApiError(409, err.message);
+        }
+        throw err;
+      }
+    },
+    /** Live booking pressure for a date: per-slot usage + that distro's cap. */
+    async slotUsage(date: string) {
+      const distro = distroOnDate(date);
+      return {
+        date,
+        slot_capacity: distro?.slotCapacity ?? null,
+        distro_id: distro?.id ?? null,
+        usage: slotUsage(doc(), date),
+      };
     },
     async recordOutcome(id: string, body: { outcome: string; note?: string | null }) {
       return householdOut(
@@ -337,27 +481,45 @@ export function makeWebApi(store: BamStore) {
     },
 
     // Distros ----------------------------------------------------------------
+    // Distros live in their own doc (the first grantable data domain); this
+    // device may not hold it. Reads merge the legacy base rows; writes need
+    // the doc. distrosAccess() tells the views which state they're in.
+    distrosAccess(): "granted" | "denied" | "legacy" {
+      if (store.distros) return "granted";
+      const r = roster();
+      if (r?.dataDomains?.["distros"]) {
+        return domainAllowed(r, store.peerId, "distros") ? "granted" : "denied";
+      }
+      return "legacy";
+    },
     async createDistro(body: Record<string, unknown>) {
-      const id = newId();
-      const now = nowIso();
-      store.base.change((d) => {
-        const row: Distro = {
-          id,
-          dateTime: String(body.date_time),
-          createdAt: now,
-        };
-        if (body.location) row.location = String(body.location);
-        if (body.duration_minutes != null) row.durationMinutes = Number(body.duration_minutes);
-        if (body.appointments != null) row.appointments = String(body.appointments);
-        if (body.notes) row.notes = String(body.notes);
-        d.distros[id] = row;
-      });
-      return distroOut(doc().distros[id]!);
+      const handle = requireDistrosDoc();
+      const input: Parameters<typeof createDistroDomain>[1] = {
+        dateTime: String(body.date_time),
+      };
+      if (body.location) input.location = String(body.location);
+      if (body.duration_minutes != null) input.durationMinutes = Number(body.duration_minutes);
+      if (body.appointments != null) input.appointments = String(body.appointments);
+      if (body.notes) input.notes = String(body.notes);
+      if (body.slot_capacity != null && body.slot_capacity !== "") {
+        input.slotCapacity = Number(body.slot_capacity);
+      }
+      return distroOut(wrap(() => createDistroDomain(handle, input)));
     },
     async listDistros() {
-      return Object.values(doc().distros)
+      return allDistros()
         .sort((a, b) => (a.dateTime < b.dateTime ? -1 : 1))
         .map(distroOut);
+    },
+    async cancelDistro(id: string, body: { reason?: string } = {}) {
+      const handle = requireDistrosDoc();
+      const result = wrap(() =>
+        cancelDistroDomain(handle, store.base, id, { reason: body.reason })
+      );
+      return {
+        distro: distroOut(result.distro),
+        rebooked_household_ids: result.rebookHouseholdIds,
+      };
     },
     async noShows(body: { distro_date: string }) {
       const report = wrap(() => processNoShows(store.base, body.distro_date));
@@ -365,6 +527,222 @@ export function makeWebApi(store: BamStore) {
         missed_household_ids: report.missedHouseholdIds,
         timed_out_household_ids: report.timedOutHouseholdIds,
       };
+    },
+
+    // Shifts & coverage board (in the distros doc) ---------------------------
+    async listShifts(params: { from?: string; to?: string; include_past?: boolean } = {}) {
+      return listShiftSlots(distrosDoc(), {
+        from: params.from,
+        to: params.to,
+        includePast: !!params.include_past,
+        todayLocal: localDate(nowIso()),
+      }).map((s) => ({
+        id: s.id,
+        date: s.date,
+        event_label: s.eventLabel,
+        role: s.role,
+        language_required: s.languageRequired ?? null,
+        needed: s.needed,
+        notes: s.notes ?? null,
+        claimed_count: s.claimedCount,
+        gap: s.gap,
+        claimants: s.claimants.map((c) => ({ peer_id: c.peerId, name: c.name, at: c.at })),
+        mine: !!s.claims[store.peerId],
+      }));
+    },
+    async createShift(body: Record<string, unknown>) {
+      requireAdmin("create shift slots");
+      const handle = requireDistrosDoc();
+      const input: Parameters<typeof createShiftSlot>[1] = {
+        date: String(body.date),
+        eventLabel: String(body.event_label ?? "Distro"),
+        role: String(body.role ?? "Volunteer"),
+      };
+      if (body.language_required) input.languageRequired = String(body.language_required);
+      if (body.needed != null) input.needed = Number(body.needed);
+      if (body.notes) input.notes = String(body.notes);
+      const slot = wrap(() => createShiftSlot(handle, input, store.peerId));
+      return { id: slot.id };
+    },
+    async updateShift(id: string, body: Record<string, unknown>) {
+      requireAdmin("edit shift slots");
+      const handle = requireDistrosDoc();
+      const patch: Parameters<typeof updateShiftSlot>[2] = {};
+      if (body.date != null) patch.date = String(body.date);
+      if (body.event_label != null) patch.eventLabel = String(body.event_label);
+      if (body.role != null) patch.role = String(body.role);
+      if (body.language_required != null) patch.languageRequired = String(body.language_required);
+      if (body.needed != null) patch.needed = Number(body.needed);
+      if (body.notes != null) patch.notes = String(body.notes);
+      wrap(() => updateShiftSlot(handle, id, patch));
+      return { ok: true };
+    },
+    async removeShift(id: string) {
+      requireAdmin("remove shift slots");
+      const handle = requireDistrosDoc();
+      wrap(() => removeShiftSlot(handle, id));
+      return { ok: true };
+    },
+    async claimShift(id: string, body: { name?: string } = {}) {
+      const handle = requireDistrosDoc();
+      const name = body.name?.trim() || me().name || `device ${store.peerId.slice(0, 8)}`;
+      try {
+        wrap(() => claimShiftSlot(handle, id, { peerId: store.peerId, name }));
+      } catch (err) {
+        if (err instanceof ShiftFullError) throw new ApiError(409, err.message);
+        throw err;
+      }
+      return { ok: true };
+    },
+    async releaseShift(id: string, body: { peer_id?: string } = {}) {
+      const handle = requireDistrosDoc();
+      const target = body.peer_id ?? store.peerId;
+      if (target !== store.peerId) requireAdmin("release someone else's shift");
+      wrap(() => releaseShiftSlot(handle, id, target));
+      return { ok: true };
+    },
+
+    // Partner sync (status × partner-org model) ------------------------------
+    async partnerSync(body: Record<string, unknown>) {
+      if (!hasCap(roster(), store.peerId, "partnerSync")) {
+        throw new ApiError(
+          403,
+          "This device isn't allowed to run partner syncs — ask an admin for the partner-sync grant."
+        );
+      }
+      const report = wrap(() =>
+        partnerSyncByPhone(store.base, {
+          partner: String(body.partner ?? ""),
+          phones: (body.phones as string[]) ?? [],
+          outcome: (body.outcome as "Delivered" | "Timeout") ?? "Delivered",
+          types: (body.types as string[]) ?? undefined,
+          includeGoods: body.include_goods == null ? true : !!body.include_goods,
+          includeServices: body.include_services == null ? true : !!body.include_services,
+          dryRun: !!body.dry_run,
+        })
+      );
+      return {
+        dry_run: !!body.dry_run,
+        matched_household_ids: report.matchedHouseholdIds,
+        closed_request_ids: report.closedRequestIds,
+        closed_social_service_request_ids: report.closedSocialServiceRequestIds,
+        unmatched_phones: report.unmatchedPhones,
+      };
+    },
+    async setPartnerOrg(id: string, body: { partner?: string | null } = {}) {
+      wrap(() => setPartnerOrg(store.base, id, body.partner ?? null));
+      return { ok: true };
+    },
+    async partnerOrgs() {
+      return { partner_orgs: doc().config?.partnerOrgs ?? [] };
+    },
+    async setPartnerOrgs(body: { partner_orgs: string[] }) {
+      requireAdmin("edit the partner list");
+      store.base.change((d) => {
+        if (!d.config) d.config = { name: d.meta.org };
+        d.config.partnerOrgs = (body.partner_orgs ?? [])
+          .map((p) => String(p).trim())
+          .filter(Boolean);
+      });
+      return { ok: true };
+    },
+
+    // Reporting: waitlist + impact -------------------------------------------
+    async waitlist() {
+      const rows = waitlistReport(doc(), localDate(nowIso()));
+      return rows.map((r) => ({
+        type: r.type,
+        label: r.label,
+        category: r.category,
+        open: r.open,
+        paced: r.paced,
+        by_language: r.byLanguage,
+        unsupported_language: r.unsupportedLanguage,
+        age: r.age,
+        oldest_open_at: r.oldestOpenAt,
+      }));
+    },
+    async impact(range: { start?: string; end?: string } = {}) {
+      const r = impactReport(doc(), range);
+      return {
+        generated_at: r.generatedAt,
+        start: r.start,
+        end: r.end,
+        delivered: r.delivered,
+        total_delivered: r.totalDelivered,
+      };
+    },
+
+    // Item policies (cooldowns + seasonal windows) ---------------------------
+    async itemPolicies() {
+      const d = doc();
+      const today = localDate(nowIso());
+      const out: Record<string, unknown> = {};
+      for (const t of [...GOODS, ...SOCIAL_SERVICES]) {
+        const p = itemPolicyFor(d, t.key);
+        if (!p) continue;
+        out[t.key] = {
+          cooldown_days: p.cooldownDays ?? null,
+          season_from: p.seasonFrom ?? null,
+          season_until: p.seasonUntil ?? null,
+          disabled: !!p.disabled,
+          in_season: isInSeason(p, today),
+        };
+      }
+      return out;
+    },
+    async setItemPolicy(typeKey: string, body: Record<string, unknown>) {
+      requireAdmin("edit item policies");
+      if (!BY_KEY[typeKey]) throw new ApiError(404, `Unknown catalog type '${typeKey}'`);
+      wrap(() =>
+        setItemPolicyDomain(store.base, typeKey, {
+          cooldownDays:
+            body.cooldown_days == null || body.cooldown_days === ""
+              ? null
+              : Number(body.cooldown_days),
+          seasonFrom:
+            body.season_from == null || body.season_from === ""
+              ? null
+              : String(body.season_from),
+          seasonUntil:
+            body.season_until == null || body.season_until === ""
+              ? null
+              : String(body.season_until),
+          disabled: body.disabled == null ? null : !!body.disabled,
+        })
+      );
+      return { ok: true };
+    },
+
+    // Referral cues shown at check-in ---------------------------------------
+    async referrals() {
+      return {
+        referrals: (doc().config?.referrals ?? []).map((r) => ({
+          label: r.label,
+          url: r.url ?? null,
+          show_for_types: r.showForTypes ?? [],
+        })),
+      };
+    },
+    async setReferrals(body: {
+      referrals: Array<{ label: string; url?: string; show_for_types?: string[] }>;
+    }) {
+      requireAdmin("edit referral cues");
+      store.base.change((d) => {
+        if (!d.config) d.config = { name: d.meta.org };
+        d.config.referrals = (body.referrals ?? [])
+          .filter((r) => r.label && String(r.label).trim())
+          .map((r) => {
+            const entry: { label: string; url?: string; showForTypes?: string[] } = {
+              label: String(r.label).trim(),
+            };
+            if (r.url && String(r.url).trim()) entry.url = String(r.url).trim();
+            const types = (r.show_for_types ?? []).map(String).filter(Boolean);
+            if (types.length) entry.showForTypes = types;
+            return entry;
+          });
+      });
+      return { ok: true };
     },
 
     // Jobs --------------------------------------------------------------------
@@ -400,11 +778,19 @@ export function makeWebApi(store: BamStore) {
 
     // Catalog ---------------------------------------------------------------------
     async catalog() {
-      const entry = (t: { key: string; label: string; category: string }) => ({
-        key: t.key,
-        label: t.label,
-        category: t.category,
-      });
+      const d = doc();
+      const today = localDate(nowIso());
+      const entry = (t: { key: string; label: string; category: string }) => {
+        const p = itemPolicyFor(d, t.key);
+        return {
+          key: t.key,
+          label: t.label,
+          category: t.category,
+          cooldown_days: p?.cooldownDays ?? null,
+          in_season: isInSeason(p, today) && !isDisabled(p),
+          disabled: isDisabled(p),
+        };
+      };
       return {
         goods: GOODS.map(entry),
         social_services: SOCIAL_SERVICES.map(entry),
@@ -458,6 +844,8 @@ export function makeWebApi(store: BamStore) {
           appointment_time: h.appointmentTime ?? null,
           appointment_status: h.appointmentStatus ?? null,
           open_request_count: counts.get(h.id) ?? 0,
+          needs_delivery: h.needsDelivery,
+          set_aside: h.setAside ? h.setAside.note : null,
         }));
     },
 
@@ -549,6 +937,7 @@ export function makeWebApi(store: BamStore) {
           bin: r.bin ?? null,
           address_accuracy: r.addressAccuracy ?? null,
           internet_access: r.internetAccess ?? [],
+          partner_org: r.partnerOrg ?? null,
           notes: r.notes ?? null,
         };
       });
