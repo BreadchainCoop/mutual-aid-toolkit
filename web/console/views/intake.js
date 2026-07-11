@@ -273,6 +273,8 @@
       const on = furnitureSelected();
       furniturePanel.hidden = !on;
       furniturePanel.style.display = on ? "" : "none";
+      // Furniture needs a delivery address — surface the folded section.
+      if (on) moreDetails.open = true;
     }
 
     // ---- social services card -------------------------------------------
@@ -373,6 +375,15 @@
     // Result region, replaced on each submit.
     const result = h("div", { id: "intake-result" });
 
+    // Address + notes fold away — most intakes are phone + items. Selecting
+    // furniture opens this automatically (deliveries need the address).
+    const moreDetails = h(
+      "details",
+      { class: "advanced" },
+      h("summary", {}, "More details — delivery address & notes"),
+      h("div", { class: "stack", style: { marginTop: "var(--s3)" } }, addressCard, notesCard)
+    );
+
     const form = h(
       "form",
       {
@@ -384,12 +395,11 @@
         },
       },
       contactCard,
-      languagesCard,
       goodsCard,
       furniturePanel,
       servicesCard,
-      addressCard,
-      notesCard,
+      languagesCard,
+      moreDetails,
       submitBtn
     );
 

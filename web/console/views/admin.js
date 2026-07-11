@@ -122,11 +122,43 @@
 
     clear(container);
     container.append(heading);
-    renderAccessCard(container);
-    renderDataAccessCard(container);
 
-    // Build each job card.
-    container.append(
+    // The Admin surface grew past "a stack of cards you scroll and hope" —
+    // group it into collapsible sections so each visit starts with a scannable
+    // table of contents. Only the access section starts open.
+    const section = (icon, title, desc, open) => {
+      const body = h("div", { class: "stack", style: { marginTop: "var(--s2)" } });
+      const el = h(
+        "details",
+        { class: "admin-section", open: open || null },
+        h(
+          "summary",
+          {},
+          `${icon} ${title}`,
+          h("span", { class: "admin-section__desc" }, desc)
+        ),
+        body
+      );
+      container.append(el);
+      return body;
+    };
+
+    const accessBody = section(
+      "🔐",
+      "Team & data access",
+      "Revoke devices, and choose which data each device can see.",
+      true
+    );
+    renderAccessCard(accessBody);
+    renderDataAccessCard(accessBody);
+
+    const jobsBody = section(
+      "🧹",
+      "Maintenance jobs",
+      "Expire stale requests, publish website counts, scrub expired PII.",
+      false
+    );
+    jobsBody.append(
       jobCard({
         id: "expire",
         icon: "⏳",
@@ -140,10 +172,7 @@
         isEmpty: (r) =>
           !(r.timed_out_request_ids || []).length &&
           !(r.timed_out_social_service_request_ids || []).length,
-      })
-    );
-
-    container.append(
+      }),
       jobCard({
         id: "website-data",
         icon: "🌐",
@@ -155,16 +184,26 @@
         renderReport: websiteReport,
         // Website data always "succeeds"; never treated as empty.
         isEmpty: () => false,
-      })
-    );
-
-    container.append(
+      }),
       scrubCard()
     );
 
-    renderItemPoliciesCard(container);
-    renderPartnerSyncCard(container);
-    renderReferralsCard(container);
+    const catalogBody = section(
+      "⏸",
+      "Cooldowns & seasons",
+      "Per-item pacing after deliveries, and seasonal on/off windows.",
+      false
+    );
+    renderItemPoliciesCard(catalogBody);
+
+    const partnersBody = section(
+      "🤝",
+      "Partners & referrals",
+      "Apply a partner's fulfillment list, and set the check-in referral cues.",
+      false
+    );
+    renderPartnerSyncCard(partnersBody);
+    renderReferralsCard(partnersBody);
   }
 
   /* Generic job card -------------------------------------------------------- */

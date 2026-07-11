@@ -56,38 +56,29 @@
       "div",
       { class: "view-heading" },
       h("h1", {}, "Check-in"),
-      h(
-        "p",
-        { class: "muted" },
-        "Look up a household by phone number or name (spec: check in via phone number/name)."
-      )
+      h("p", { class: "muted" }, "Find the household, hand things over, done.")
     );
 
-    // ---- lookup form -----------------------------------------------------
-    const phoneInput = h("input", {
+    // ---- lookup form: ONE box that figures out what you typed -------------
+    // Phone, last 4 digits, a name, or an email — volunteers shouldn't have
+    // to know which field is which while a line is forming.
+    const searchInput = h("input", {
       class: "input",
       id: "checkin-phone",
-      name: "phone",
-      type: "tel",
-      inputmode: "tel",
-      autocomplete: "off",
-      placeholder: "(718) 555-0142",
-      "aria-label": "Phone number",
-    });
-    const nameInput = h("input", {
-      class: "input",
-      id: "checkin-name",
-      name: "name",
+      name: "search",
       type: "text",
+      inputmode: "search",
       autocomplete: "off",
-      placeholder: "e.g. Maria",
-      "aria-label": "Name",
+      autofocus: true,
+      placeholder: "Phone, last 4 digits, name, or email",
+      "aria-label": "Phone, last 4 digits, name, or email",
+      style: { fontSize: "18px" },
     });
 
     const lookupBtn = h(
       "button",
-      { class: "btn btn-primary", type: "submit" },
-      "Look up"
+      { class: "btn btn-primary btn-block", type: "submit" },
+      "Find them"
     );
 
     const form = h(
@@ -102,14 +93,13 @@
       h(
         "div",
         { class: "field" },
-        h("label", { class: "label", for: "checkin-phone" }, "Phone number (or last 4 digits)"),
-        phoneInput
-      ),
-      h(
-        "div",
-        { class: "field" },
-        h("label", { class: "label", for: "checkin-name" }, "…or name or email (if they arrived without their phone)"),
-        nameInput
+        h("label", { class: "label", for: "checkin-phone" }, "Who's here?"),
+        searchInput,
+        h(
+          "span",
+          { class: "muted", style: { fontSize: "13px" } },
+          "A full number finds them exactly; the last 4 digits, a first name, or part of an email also work."
+        )
       ),
       lookupBtn
     );
@@ -132,47 +122,48 @@
         }
       });
     } else if (params && params.phone) {
-      phoneInput.value = params.phone;
+      searchInput.value = params.phone;
       doLookup();
     } else {
-      // Autofocus the phone input on mobile-first arrival.
-      setTimeout(() => phoneInput.focus(), 0);
+      // Autofocus the search box on mobile-first arrival.
+      setTimeout(() => searchInput.focus(), 0);
     }
 
     // ---- actions ---------------------------------------------------------
 
+    // One smart lookup: detect what the volunteer typed instead of making
+    // them pick a field. "@" → email; mostly digits → phone (short = last-N
+    // suffix, long = exact); anything else → name.
     async function doLookup() {
-      const phone = phoneInput.value.trim();
-      const name = nameInput.value.trim();
-      if (!phone && !name) {
-        toast("Enter a phone number or a name to look up.", "info");
-        phoneInput.focus();
+      const query = searchInput.value.trim();
+      if (!query) {
+        toast("Type a phone number, name, or email to look them up.", "info");
+        searchInput.focus();
         return;
       }
       setBusy(true);
       showLoading("Looking up household…");
       selectedRequests.clear();
       selectedServices.clear();
+      const digits = query.replace(/\D/g, "");
+      const letters = query.replace(/[\d\s\-+().]/g, "");
       try {
-        if (phone) {
-          const digits = phone.replace(/\D/g, "");
-          if (digits && digits.length <= 4) {
-            // Last-4-digits search (volunteer-checkin guide Step 2).
-            await routeMatches(await api.searchByPhone(digits), phone);
-          } else {
-            state.view = await api.lookup(phone);
-            renderResult();
-          }
-        } else if (name.includes("@")) {
+        if (query.includes("@")) {
           // Email-fragment search — the households the phone pipeline misses.
-          await routeMatches(await api.searchByEmail(name), name);
+          await routeMatches(await api.searchByEmail(query), query);
+        } else if (digits.length >= 7 && letters.length === 0) {
+          state.view = await api.lookup(query);
+          renderResult();
+        } else if (digits.length >= 1 && letters.length === 0) {
+          // Short digit strings = phone-suffix search (last 4 on their card).
+          await routeMatches(await api.searchByPhone(digits), query);
         } else {
-          await routeMatches(await api.searchByName(name), name);
+          await routeMatches(await api.searchByName(query), query);
         }
       } catch (err) {
         state.view = null;
         if (err instanceof api.ApiError && err.status === 404) {
-          renderNotFound(phone || name);
+          renderNotFound(query);
         } else {
           showError(err);
           toast(err.detail || "Lookup failed.", "error");

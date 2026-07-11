@@ -152,6 +152,58 @@
       h("span", {}, "🔁 Needs rebooking only (cancelled-distro queue)")
     );
 
+    // One-tap presets: the lists the team actually builds every week, without
+    // touching a single filter. Each resets the filters, applies its own, and
+    // builds immediately.
+    function resetFilters() {
+      customRequestTypes.clear();
+      renderRequestTypePills();
+      langPick.reset();
+      excludeTextedInput.value = "0";
+      excludeAttendedInput.value = "0";
+      limitInput.value = "";
+      rebookingBox.checked = false;
+      state.interpreterOnly = false;
+      state.channel = "sms";
+      renderChannelToggle();
+      syncChannelUi();
+    }
+    function preset(label, hint, apply) {
+      return h(
+        "button",
+        {
+          type: "button",
+          class: "btn",
+          title: hint,
+          onclick: () => {
+            resetFilters();
+            apply();
+            renderChannelToggle();
+            syncChannelUi();
+            doBuildList();
+          },
+        },
+        label
+      );
+    }
+    const presetsRow = h(
+      "div",
+      { class: "row", style: { flexWrap: "wrap", gap: "var(--s2)" } },
+      preset("📬 Not texted in 7 days", "Households with open requests that haven't heard from us this week", () => {
+        excludeTextedInput.value = "7";
+      }),
+      preset("🔁 Needs rebooking", "Families whose distro was cancelled", () => {
+        rebookingBox.checked = true;
+      }),
+      preset("🌐 Interpreter needed", "Households with no catalog-supported language", () => {
+        state.interpreterOnly = true;
+      }),
+      preset("✉️ Email-only households", "No working phone but a good email — texts can never reach them", () => {
+        state.channel = "email";
+      }),
+      preset("📋 Everyone with open requests", "The whole open queue, oldest first", () => {})
+    );
+
     const filtersForm = h(
       "form",
       {
@@ -161,73 +213,89 @@
           doBuildList();
         },
       },
-      h("h2", { class: "card__title" }, "1 · Build outreach list"),
-      // Channel
+      h("h2", { class: "card__title" }, "1 · Who are we reaching?"),
       h(
-        "div",
-        { class: "field" },
-        h("span", { class: "label" }, "Channel"),
-        channelWrap,
-        h(
-          "div",
-          { class: "list-item__meta" },
-          "Email reaches households with no working phone — the people texts and calls can never book."
-        )
+        "p",
+        { class: "muted", style: { margin: "0" } },
+        "Pick a ready-made list, or open the filters to build your own."
       ),
-      rebookingRow,
-      // Request types
+      presetsRow,
+      // The full filter set, folded away — presets cover the everyday lists.
       h(
-        "div",
-        { class: "field" },
-        h("label", { class: "label", for: "out-req-type" }, "Request types (optional)"),
+        "details",
+        { class: "advanced" },
+        h("summary", {}, "Advanced filters"),
         h(
           "div",
-          { class: "row" },
-          h("div", { class: "grow" }, requestTypeInput),
+          { class: "stack", style: { marginTop: "var(--s3)" } },
+          // Channel
           h(
-            "button",
-            { class: "btn", type: "button", onclick: addRequestType },
-            "Add"
-          )
-        ),
-        h(
-          "div",
-          { class: "list-item__meta" },
-          "Match households with an open request of any listed type. Leave empty for all types."
-        ),
-        requestTypePills
-      ),
-      // Languages
-      h(
-        "div",
-        { class: "field" },
-        h("span", { class: "label" }, "Languages (optional)"),
-        langPick.el
-      ),
-      // Recency + limit
-      h(
-        "div",
-        { class: "row" },
-        h(
-          "div",
-          { class: "field grow" },
-          h("label", { class: "label", for: "out-excl-texted" }, "Exclude texted within (days)"),
-          excludeTextedInput
-        ),
-        h(
-          "div",
-          { class: "field grow" },
-          h("label", { class: "label", for: "out-excl-attended" }, "Exclude attended within (days)"),
-          excludeAttendedInput
+            "div",
+            { class: "field" },
+            h("span", { class: "label" }, "Channel"),
+            channelWrap,
+            h(
+              "div",
+              { class: "list-item__meta" },
+              "Email reaches households with no working phone — the people texts and calls can never book."
+            )
+          ),
+          rebookingRow,
+          // Request types
+          h(
+            "div",
+            { class: "field" },
+            h("label", { class: "label", for: "out-req-type" }, "Request types (optional)"),
+            h(
+              "div",
+              { class: "row" },
+              h("div", { class: "grow" }, requestTypeInput),
+              h(
+                "button",
+                { class: "btn", type: "button", onclick: addRequestType },
+                "Add"
+              )
+            ),
+            h(
+              "div",
+              { class: "list-item__meta" },
+              "Match households with an open request of any listed type. Leave empty for all types."
+            ),
+            requestTypePills
+          ),
+          // Languages
+          h(
+            "div",
+            { class: "field" },
+            h("span", { class: "label" }, "Languages (optional)"),
+            langPick.el
+          ),
+          // Recency + limit
+          h(
+            "div",
+            { class: "row" },
+            h(
+              "div",
+              { class: "field grow" },
+              h("label", { class: "label", for: "out-excl-texted" }, "Exclude texted within (days)"),
+              excludeTextedInput
+            ),
+            h(
+              "div",
+              { class: "field grow" },
+              h("label", { class: "label", for: "out-excl-attended" }, "Exclude attended within (days)"),
+              excludeAttendedInput
+            )
+          ),
+          h(
+            "div",
+            { class: "field" },
+            h("label", { class: "label", for: "out-limit" }, "Limit (optional)"),
+            limitInput
+          ),
+          buildBtn
         )
-      ),
-      h(
-        "div",
-        { class: "field" },
-        h("label", { class: "label", for: "out-limit" }, "Limit (optional)"),
-        limitInput
-      ),
-      buildBtn
+      )
     );
 
     // Candidate results region, replaced on each build.
@@ -305,7 +373,7 @@
           doBlast();
         },
       },
-      h("h2", { class: "card__title" }, "2 · Send text blast"),
+      h("h2", { class: "card__title" }, "2 · Send the message"),
       h(
         "div",
         { class: "field" },
@@ -374,6 +442,8 @@
     renderListPlaceholder();
     updateSendButton();
     syncChannelUi();
+    // Guided flow: the send step only appears once there's a list to send to.
+    blastCard.style.display = "none";
 
     // ---- Panel A: filter editing ----------------------------------------
 
@@ -451,6 +521,8 @@
         });
         renderCandidates();
         updateSendButton();
+        // Reveal the send step now that there's a list to act on.
+        blastCard.style.display = state.candidates.length ? "" : "none";
       } catch (err) {
         state.candidates = null;
         renderListError(err);
@@ -469,7 +541,8 @@
           "div",
           { class: "card empty-state" },
           h("div", { class: "empty-state__icon" }, "📋"),
-          h("div", {}, "Set filters above and build a list to see candidates.")
+          h("div", {}, "Pick a list above to get started."),
+          h("p", { class: "muted" }, "The send step appears once you have people to reach.")
         )
       );
     }
@@ -593,7 +666,13 @@
         shown.map((c) => candidateRow(c))
       );
 
-      listResult.append(h("div", { class: "card stack" }, header, rebookBanner, list));
+      const stepHint = h(
+        "p",
+        { class: "muted", style: { margin: "0", fontSize: "13px" } },
+        "Tick who to contact — the send step is right below."
+      );
+
+      listResult.append(h("div", { class: "card stack" }, header, stepHint, rebookBanner, list));
     }
 
     function candidateRow(c) {

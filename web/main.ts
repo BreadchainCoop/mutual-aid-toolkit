@@ -31,6 +31,7 @@ import { LANGUAGES } from "../src/domain/catalog.ts";
 import consoleFonts from "./console/fonts.css?raw";
 import consoleStyles from "./console/styles.css?raw";
 import consoleApp from "./console/app.js?raw";
+import viewHome from "./console/views/home.js?raw";
 import viewCheckin from "./console/views/checkin.js?raw";
 import viewAppointments from "./console/views/appointments.js?raw";
 import viewLookup from "./console/views/lookup.js?raw";
@@ -279,6 +280,7 @@ function firstRunScreen(root: HTMLElement, peerId: string): Promise<AppConfig> {
 // is what lets StatiCrypt encrypt it as one file.
 const CONSOLE_SCRIPTS: string[] = [
   consoleApp,
+  viewHome,
   viewCheckin,
   viewAppointments,
   viewLookup,

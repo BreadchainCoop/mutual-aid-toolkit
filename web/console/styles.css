@@ -915,3 +915,165 @@ details.advanced[open] > summary::before {
   font-size: 14px;
   padding: var(--s2) 0;
 }
+
+/* Guided nav: grouped sidebar sections + mobile "More" sheet -------------- */
+
+.nav__group-label {
+  display: none;
+}
+
+@media (min-width: 860px) {
+  .nav__group-label {
+    display: block;
+    font-family: var(--font-display, inherit);
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+    padding: var(--s4) var(--s3) var(--s1);
+  }
+  .nav__item--more {
+    display: none;
+  }
+}
+
+@media (max-width: 859px) {
+  /* Mobile bar: only the everyday tasks + More. */
+  .nav__item--secondary {
+    display: none;
+  }
+}
+
+.nav__item--more {
+  background: none;
+  border: none;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.nav-sheet {
+  position: fixed;
+  z-index: 30;
+  left: var(--s3);
+  right: var(--s3);
+  bottom: calc(var(--nav-h) + var(--s3));
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--s1);
+  padding: var(--s3);
+  background: var(--surface);
+  border: 1.5px solid var(--ink);
+  border-radius: var(--radius);
+  box-shadow: var(--lift);
+}
+
+.nav-sheet__item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: var(--s3) var(--s1);
+  border-radius: var(--radius-sm);
+  text-decoration: none;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 600;
+  text-align: center;
+  min-height: 44px;
+}
+
+.nav-sheet__item:active,
+.nav-sheet__item:hover {
+  background: var(--brand-soft);
+}
+
+/* Home: guided task cards -------------------------------------------------- */
+
+.taskgrid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--s3);
+}
+
+@media (min-width: 640px) {
+  .taskgrid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.taskcard {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--s3);
+  padding: var(--s4);
+  background: var(--surface);
+  border: 1.5px solid var(--ink);
+  border-radius: var(--radius);
+  box-shadow: var(--lift);
+  text-decoration: none;
+  color: var(--ink);
+  transition: transform 0.06s ease, box-shadow 0.06s ease;
+}
+
+.taskcard:active {
+  transform: translate(4px, 4px);
+  box-shadow: 0 0 0 0 var(--ink);
+}
+
+.taskcard__icon {
+  font-size: 28px;
+  line-height: 1;
+}
+
+.taskcard__title {
+  font-family: var(--font-display, inherit);
+  font-weight: 800;
+  font-size: 17px;
+  margin: 0;
+}
+
+.taskcard__desc {
+  margin: 2px 0 0;
+  color: var(--muted);
+  font-size: 13.5px;
+}
+
+.taskcard__hint {
+  margin-top: var(--s2);
+}
+
+.quicklinks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s2);
+}
+
+/* Admin: collapsible sections ---------------------------------------------- */
+
+.admin-section {
+  margin-top: var(--s3);
+}
+
+.admin-section > summary {
+  cursor: pointer;
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 18px;
+  padding: var(--s3) 0 var(--s2);
+  border-bottom: 1px solid var(--border);
+}
+
+.admin-section > summary::marker {
+  color: var(--brand);
+}
+
+.admin-section__desc {
+  display: block;
+  font-family: var(--font-body, inherit);
+  font-weight: 400;
+  font-size: 13px;
+  color: var(--muted);
+  margin-top: 2px;
+}

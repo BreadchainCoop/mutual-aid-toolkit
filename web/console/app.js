@@ -172,7 +172,7 @@
 
   /* Routing --------------------------------------------------------------- */
 
-  const DEFAULT_VIEW = "checkin";
+  const DEFAULT_VIEW = "home";
 
   function mainEl() {
     return document.getElementById("app-main");
@@ -209,13 +209,21 @@
   function setActiveNav(name) {
     const nav = navEl();
     if (!nav) return;
+    let activeIsSecondary = false;
     nav.querySelectorAll(".nav__item").forEach((item) => {
       if (item.dataset.view === name) {
         item.setAttribute("aria-current", "page");
+        if (item.classList.contains("nav__item--secondary")) activeIsSecondary = true;
       } else {
         item.removeAttribute("aria-current");
       }
     });
+    // On mobile the active view may live behind "More" — reflect that there.
+    const moreBtn = document.getElementById("nav-more-btn");
+    if (moreBtn) {
+      if (activeIsSecondary) moreBtn.setAttribute("aria-current", "page");
+      else moreBtn.removeAttribute("aria-current");
+    }
   }
 
   function setBarView(title) {
@@ -483,15 +491,80 @@
     return null;
   }
 
+  /* Guided navigation ------------------------------------------------------
+   * The console grew to a dozen views; a flat tab bar stopped being usable
+   * (especially the mobile bottom bar). Views are grouped into labeled
+   * sections on the desktop sidebar, and the mobile bar shows only the four
+   * everyday tasks plus a "More" sheet with everything else. */
+
+  const NAV_GROUPS = [
+    { label: null, views: ["home"] },
+    { label: "Distro day", views: ["checkin", "appointments", "shifts"] },
+    { label: "Requests", views: ["intake", "lookup", "furniture", "services"] },
+    { label: "Reach out", views: ["outreach"] },
+    { label: "Organize", views: ["distros", "dashboard"] },
+    { label: "Your org", views: ["admin", "roster", "settings"] },
+  ];
+  const MOBILE_PRIMARY = ["home", "checkin", "intake", "outreach"];
+
+  function closeMoreSheet() {
+    const sheet = document.getElementById("nav-more-sheet");
+    if (sheet) sheet.remove();
+    const btn = document.getElementById("nav-more-btn");
+    if (btn) btn.setAttribute("aria-expanded", "false");
+  }
+
+  function openMoreSheet(moreViews) {
+    closeMoreSheet();
+    const btn = document.getElementById("nav-more-btn");
+    if (btn) btn.setAttribute("aria-expanded", "true");
+    const sheet = BAM.h(
+      "div",
+      { id: "nav-more-sheet", class: "nav-sheet", role: "menu" },
+      moreViews.map((view) =>
+        BAM.h(
+          "a",
+          {
+            class: "nav-sheet__item",
+            href: `#${view.name}`,
+            role: "menuitem",
+            onclick: closeMoreSheet,
+          },
+          BAM.h("span", { class: "nav__icon", "aria-hidden": "true" }, view.icon || "•"),
+          BAM.h("span", {}, view.title)
+        )
+      )
+    );
+    document.body.appendChild(sheet);
+    // Dismiss on any tap outside the sheet (next tick so this tap doesn't).
+    setTimeout(() => {
+      document.addEventListener(
+        "click",
+        function onDoc(e) {
+          if (!sheet.contains(e.target)) {
+            closeMoreSheet();
+            document.removeEventListener("click", onDoc);
+          }
+        },
+        { once: false }
+      );
+    }, 0);
+  }
+
   function buildNav() {
     const nav = navEl();
     if (!nav) return;
     BAM.clear(nav);
-    enabledViews().forEach((view) => {
-      const item = BAM.h(
+    closeMoreSheet();
+    const byName = new Map(enabledViews().map((v) => [v.name, v]));
+    const placed = new Set();
+    const moreViews = [];
+
+    const makeItem = (view, secondary) =>
+      BAM.h(
         "a",
         {
-          class: "nav__item",
+          class: "nav__item" + (secondary ? " nav__item--secondary" : ""),
           href: `#${view.name}`,
           dataset: { view: view.name },
           "aria-label": view.title,
@@ -499,15 +572,61 @@
         BAM.h("span", { class: "nav__icon", "aria-hidden": "true" }, view.icon || "•"),
         BAM.h("span", { class: "nav__label" }, view.title)
       );
-      nav.appendChild(item);
+
+    NAV_GROUPS.forEach((group) => {
+      const groupViews = group.views
+        .map((n) => byName.get(n))
+        .filter(Boolean);
+      if (!groupViews.length) return;
+      if (group.label) {
+        nav.appendChild(BAM.h("div", { class: "nav__group-label", "aria-hidden": "true" }, group.label));
+      }
+      groupViews.forEach((view) => {
+        placed.add(view.name);
+        const secondary = !MOBILE_PRIMARY.includes(view.name);
+        if (secondary) moreViews.push(view);
+        nav.appendChild(makeItem(view, secondary));
+      });
     });
+    // Views not in any group (custom instances) come last and live in More.
+    enabledViews()
+      .filter((v) => !placed.has(v.name))
+      .forEach((view) => {
+        moreViews.push(view);
+        nav.appendChild(makeItem(view, true));
+      });
+
+    if (moreViews.length) {
+      nav.appendChild(
+        BAM.h(
+          "button",
+          {
+            id: "nav-more-btn",
+            type: "button",
+            class: "nav__item nav__item--more",
+            "aria-haspopup": "menu",
+            "aria-expanded": "false",
+            onclick: () => {
+              const open = document.getElementById("nav-more-sheet");
+              if (open) closeMoreSheet();
+              else openMoreSheet(moreViews);
+            },
+          },
+          BAM.h("span", { class: "nav__icon", "aria-hidden": "true" }, "⋯"),
+          BAM.h("span", { class: "nav__label" }, "More")
+        )
+      );
+    }
   }
 
   /** Boot: theme from the instance config, build the nav, then render. */
   BAM.start = async function start() {
     BAM.applyConfig(await loadConfig());
     buildNav();
-    window.addEventListener("hashchange", renderCurrent);
+    window.addEventListener("hashchange", () => {
+      closeMoreSheet();
+      renderCurrent();
+    });
     renderCurrent();
   };
 
