@@ -42,6 +42,7 @@ import viewFurniture from "./console/views/furniture.js?raw";
 import viewServices from "./console/views/services.js?raw";
 import viewDistros from "./console/views/distros.js?raw";
 import viewShifts from "./console/views/shifts.js?raw";
+import viewData from "./console/views/data.js?raw";
 import viewAdmin from "./console/views/admin.js?raw";
 
 // Apply the console fonts + stylesheet (index.html no longer links them).
@@ -290,6 +291,7 @@ const CONSOLE_SCRIPTS: string[] = [
   viewServices,
   viewDistros,
   viewShifts,
+  viewData,
   viewDashboard,
 ];
 

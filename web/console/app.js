@@ -502,7 +502,7 @@
     { label: "Distro day", views: ["checkin", "appointments", "shifts"] },
     { label: "Requests", views: ["intake", "lookup", "furniture", "services"] },
     { label: "Reach out", views: ["outreach"] },
-    { label: "Organize", views: ["distros", "dashboard"] },
+    { label: "Organize", views: ["distros", "dashboard", "data"] },
     { label: "Your org", views: ["admin", "roster"] },
   ];
   const MOBILE_PRIMARY = ["home", "checkin", "intake", "outreach"];

@@ -1286,3 +1286,71 @@ details.advanced[open] > summary::before {
   font-weight: 700;
   flex: none;
 }
+
+/* Data grid (spreadsheet view) ----------------------------------------------- */
+
+.grid-wrap {
+  overflow: auto;
+  max-height: 70vh;
+}
+
+.grid {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13.5px;
+}
+
+.grid th,
+.grid td {
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  border-right: 1px solid var(--border);
+  text-align: left;
+  white-space: nowrap;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: middle;
+}
+
+.grid td.grid__wide {
+  max-width: 340px;
+  white-space: normal;
+}
+
+.grid th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--surface-2, #f0ece2);
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.grid__sort {
+  background: none;
+  border: none;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  padding: 0;
+}
+
+.grid__num {
+  text-align: right;
+}
+
+.grid tbody tr:nth-child(even) {
+  background: color-mix(in srgb, var(--surface) 60%, var(--bg));
+}
+
+.grid__row--link {
+  cursor: pointer;
+}
+
+.grid__row--link:hover {
+  background: var(--brand-soft);
+}
