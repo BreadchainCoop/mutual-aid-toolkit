@@ -8,6 +8,7 @@
 import type { BamDoc, Household, RequestRow, SocialServiceRequestRow } from "../schema.ts";
 import { localDate, nowIso } from "../schema.ts";
 import { BY_KEY, LANGUAGES, labelFor } from "./catalog.ts";
+import { stockFor } from "./inventory.ts";
 
 const DAY_MS = 86_400_000;
 const SUPPORTED_LANGUAGES = new Set(LANGUAGES);
@@ -38,6 +39,8 @@ export interface WaitlistRow {
    * ≤30, 31–90, 91–180, older. */
   age: { d30: number; d90: number; d180: number; older: number };
   oldestOpenAt: string | null;
+  /** Units on hand when the item is inventory-tracked; null = untracked. */
+  stock: number | null;
 }
 
 /**
@@ -62,6 +65,7 @@ export function waitlistReport(doc: BamDoc, todayLocal: string): WaitlistRow[] {
         unsupportedLanguage: 0,
         age: { d30: 0, d90: 0, d180: 0, older: 0 },
         oldestOpenAt: null,
+        stock: stockFor(doc, row.type),
       };
       rows.set(row.type, entry);
     }

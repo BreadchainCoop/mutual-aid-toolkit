@@ -125,7 +125,7 @@
       } catch (_e) {
         /* hint only */
       }
-      // Shift gaps → shifts card.
+      // Shift gaps + open deliveries → shifts card.
       try {
         const slots = await api.listShifts({});
         const gap = slots.reduce((sum, s) => sum + (s.gap || 0), 0);
@@ -138,6 +138,17 @@
         }
       } catch (_e) {
         /* device may not hold the distros domain — the card still links */
+      }
+      try {
+        const deliveries = await api.listDeliveries();
+        const open = deliveries.filter((t) => t.status === "Open").length;
+        if (open > 0) {
+          shifts.hint.append(
+            h("span", { class: "badge badge-timeout" }, `🚚 ${open} deliver${open === 1 ? "y" : "ies"} need a driver`)
+          );
+        }
+      } catch (_e) {
+        /* hint only */
       }
       // Rebooking queue → outreach card.
       try {

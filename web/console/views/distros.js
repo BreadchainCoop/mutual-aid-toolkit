@@ -81,6 +81,7 @@
           renderCreateForm()
         ),
         listRegion,
+        renderInventoryCard(),
         renderSlotUsageCard(),
         renderNoShowCard()
       );
@@ -503,6 +504,143 @@
       } catch (err) {
         toast(err.detail || "Could not cancel the distro.", "error");
       }
+    }
+
+    // ---- post-distro inventory count ----------------------------------------
+    // The structured version of the "POST DISTRO INVENTORY" message the crew
+    // used to type into chat: count what's left, and the stock levels feed
+    // outreach ("in-stock only") and the waitlist board automatically.
+    function renderInventoryCard() {
+      const wrap = h(
+        "details",
+        { class: "advanced" },
+        h("summary", {}, "📦 Post-distro inventory count")
+      );
+      const body = h("div", { class: "card stack", style: { marginTop: "var(--s3)" } });
+      wrap.append(body);
+      let loaded = false;
+
+      wrap.addEventListener("toggle", () => {
+        if (wrap.open && !loaded) {
+          loaded = true;
+          void loadInventory();
+        }
+      });
+
+      async function loadInventory() {
+        clear(body).append(h("div", { class: "loading" }, h("span", { class: "spinner" }), "Loading stock…"));
+        try {
+          const inv = await api.inventory();
+          drawForm(inv);
+        } catch (err) {
+          clear(body).append(h("div", { class: "empty-state" }, (err && err.detail) || "Could not load inventory."));
+        }
+      }
+
+      function shortLabel(label, key) {
+        const parts = String(label || "").split("/").map((s) => s.trim()).filter(Boolean);
+        return parts[1] || parts[0] || key;
+      }
+
+      function drawForm(inv) {
+        clear(body);
+        const inputs = new Map();
+        const rows = (inv.items || []).map((it) => {
+          const input = h("input", {
+            class: "input",
+            type: "number",
+            min: "0",
+            value: it.on_hand != null ? String(it.on_hand) : "",
+            placeholder: "—",
+            "aria-label": `${shortLabel(it.label, it.type)} on hand`,
+            style: { width: "84px" },
+          });
+          inputs.set(it.type, input);
+          return h(
+            "li",
+            { class: "list-item" },
+            h(
+              "div",
+              { class: "list-item__body" },
+              h("div", { class: "list-item__label" }, shortLabel(it.label, it.type)),
+              it.on_hand === 0
+                ? h("div", { class: "list-item__meta", style: { color: "var(--danger)" } }, "OUT — outreach skips this when “in stock only” is on")
+                : it.updated_at
+                  ? h("div", { class: "list-item__meta" }, `updated ${fmtDate(it.updated_at)} by ${it.updated_by || "—"}`)
+                  : h("div", { class: "list-item__meta" }, "not tracked yet — leave blank to keep it that way"),
+            ),
+            input
+          );
+        });
+
+        const dateInput = h("input", { class: "input", type: "date", value: todayLocalIso(), "aria-label": "Count date" });
+        const notesInput = h("input", {
+          class: "input",
+          type: "text",
+          placeholder: "e.g. buyer: Alicia · counted by Sam (optional)",
+          "aria-label": "Count notes",
+        });
+        const saveBtn = h(
+          "button",
+          {
+            class: "btn btn-primary btn-block",
+            type: "button",
+            onclick: async () => {
+              const counts = {};
+              for (const [type, input] of inputs) {
+                if (input.value.trim() !== "") counts[type] = Number(input.value);
+              }
+              if (!Object.keys(counts).length) {
+                toast("Enter at least one count — blank items stay untracked.", "info");
+                return;
+              }
+              saveBtn.disabled = true;
+              try {
+                const out = await api.recordInventory({
+                  date: dateInput.value,
+                  counts,
+                  notes: notesInput.value.trim() || undefined,
+                });
+                toast(`Inventory saved — ${out.counted} items counted. Stock levels updated everywhere.`, "success");
+                await loadInventory();
+              } catch (err) {
+                toast((err && err.detail) || "Could not save the count.", "error");
+              } finally {
+                saveBtn.disabled = false;
+              }
+            },
+          },
+          "Save count"
+        );
+
+        body.append(
+          h(
+            "p",
+            { class: "muted", style: { margin: "0" } },
+            "Count what's on the shelves after the distro. Deliveries at check-in subtract automatically between counts; an item at 0 is skipped by “in stock only” outreach."
+          ),
+          h("div", { class: "row" }, h("div", { class: "field grow" }, h("span", { class: "label" }, "Count date"), dateInput)),
+          h("ul", { class: "list" }, rows),
+          h("div", { class: "field" }, h("span", { class: "label" }, "Notes"), notesInput),
+          saveBtn,
+          (inv.history || []).length
+            ? h(
+                "div",
+                { class: "stack", style: { gap: "var(--s1)" } },
+                h("div", { class: "section-title" }, "Past counts"),
+                ...(inv.history || []).slice(0, 5).map((c) =>
+                  h(
+                    "div",
+                    { class: "list-item__meta" },
+                    `${fmtDate(c.date)} by ${c.by}: ${Object.keys(c.counts).length} items${c.notes ? ` — ${c.notes}` : ""}`
+                  )
+                )
+              )
+            : null
+        );
+      }
+
+      return wrap;
     }
 
     // ---- slot usage check --------------------------------------------------

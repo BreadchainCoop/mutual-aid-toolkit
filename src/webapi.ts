@@ -71,6 +71,21 @@ import { impactReport, waitlistReport } from "./domain/reporting.ts";
 import { seedDemoData } from "./domain/seed.ts";
 import { createCheckpoint, pinToIpfs } from "./checkpoint.ts";
 import {
+  inventoryHistory,
+  recordInventoryCount,
+  setStockLevel,
+  stockFor,
+} from "./domain/inventory.ts";
+import {
+  DeliveryTakenError,
+  claimDelivery,
+  completeDelivery,
+  createDelivery,
+  listDeliveries,
+  releaseDelivery,
+  removeDelivery,
+} from "./domain/deliveries.ts";
+import {
   ShiftFullError,
   claimShiftSlot,
   createShiftSlot,
@@ -393,6 +408,7 @@ export function makeWebApi(store: BamStore) {
         limit: (filters.limit as number) ?? undefined,
         channel: (filters.channel as "sms" | "email") ?? undefined,
         rebookingOnly: !!filters.rebooking_only,
+        inStockOnly: !!filters.in_stock_only,
       }).map((c) => ({
         household_id: c.householdId,
         name: c.name ?? null,
@@ -678,6 +694,7 @@ export function makeWebApi(store: BamStore) {
         unsupported_language: r.unsupportedLanguage,
         age: r.age,
         oldest_open_at: r.oldestOpenAt,
+        stock: r.stock,
       }));
     },
     async impact(range: { start?: string; end?: string } = {}) {
@@ -702,6 +719,7 @@ export function makeWebApi(store: BamStore) {
         if (!p) continue;
         out[t.key] = {
           cooldown_days: p.cooldownDays ?? null,
+          expiry_days: p.expiryDays ?? null,
           season_from: p.seasonFrom ?? null,
           season_until: p.seasonUntil ?? null,
           disabled: !!p.disabled,
@@ -719,6 +737,10 @@ export function makeWebApi(store: BamStore) {
             body.cooldown_days == null || body.cooldown_days === ""
               ? null
               : Number(body.cooldown_days),
+          expiryDays:
+            body.expiry_days == null || body.expiry_days === ""
+              ? null
+              : Number(body.expiry_days),
           seasonFrom:
             body.season_from == null || body.season_from === ""
               ? null
@@ -761,6 +783,108 @@ export function makeWebApi(store: BamStore) {
             return entry;
           });
       });
+      return { ok: true };
+    },
+
+    // Inventory ----------------------------------------------------------------
+    async inventory() {
+      const d = doc();
+      const entry = (t: { key: string; label: string; category: string }) => ({
+        type: t.key,
+        label: t.label,
+        category: t.category,
+        on_hand: stockFor(d, t.key),
+        updated_at: d.inventory?.[t.key]?.updatedAt ?? null,
+        updated_by: d.inventory?.[t.key]?.updatedBy ?? null,
+      });
+      return {
+        items: GOODS.map(entry),
+        history: inventoryHistory(d).map((c) => ({
+          id: c.id,
+          date: c.date,
+          by: c.by,
+          counts: { ...c.counts },
+          notes: c.notes ?? null,
+        })),
+      };
+    },
+    async recordInventory(body: { date: string; counts: { [type: string]: number }; notes?: string }) {
+      const entry = wrap(() =>
+        recordInventoryCount(
+          store.base,
+          { date: body.date, counts: body.counts ?? {}, notes: body.notes },
+          me()
+        )
+      );
+      return { id: entry.id, date: entry.date, counted: Object.keys(entry.counts).length };
+    },
+    async setStock(type: string, body: { on_hand: number }) {
+      wrap(() => setStockLevel(store.base, type, Number(body.on_hand), me()));
+      return { ok: true };
+    },
+
+    // Delivery dispatch board (in the distros doc) ----------------------------
+    async listDeliveries() {
+      requireView("shifts", "the delivery board");
+      return listDeliveries(distrosDoc()).map((t) => ({
+        id: t.id,
+        items: t.items,
+        status: t.status,
+        household_id: t.householdId ?? null,
+        household_name: t.householdName ?? null,
+        phone: t.phone ?? null,
+        address: t.address ?? null,
+        notes: t.notes ?? null,
+        claimed_by: t.claimedBy ? { peer_id: t.claimedBy.peerId, name: t.claimedBy.name, at: t.claimedBy.at } : null,
+        mine: t.claimedBy?.peerId === store.peerId,
+        delivered_at: t.deliveredAt ?? null,
+        created_at: t.createdAt,
+      }));
+    },
+    async createDelivery(body: Record<string, unknown>) {
+      requireAdmin("post deliveries");
+      const handle = requireDistrosDoc();
+      const task = wrap(() =>
+        createDelivery(handle, {
+          items: String(body.items ?? ""),
+          householdId: (body.household_id as string) ?? undefined,
+          householdName: (body.household_name as string) ?? undefined,
+          phone: (body.phone as string) ?? undefined,
+          address: (body.address as string) ?? undefined,
+          notes: (body.notes as string) ?? undefined,
+        }, store.peerId)
+      );
+      return { id: task.id };
+    },
+    async claimDelivery(id: string, body: { name?: string } = {}) {
+      const handle = requireDistrosDoc();
+      const name = body.name?.trim() || me().name || `device ${store.peerId.slice(0, 8)}`;
+      try {
+        wrap(() => claimDelivery(handle, id, { peerId: store.peerId, name }));
+      } catch (err) {
+        if (err instanceof DeliveryTakenError) throw new ApiError(409, err.message);
+        throw err;
+      }
+      return { ok: true };
+    },
+    async releaseDelivery(id: string) {
+      const handle = requireDistrosDoc();
+      wrap(() => releaseDelivery(handle, id, store.peerId));
+      return { ok: true };
+    },
+    async completeDelivery(id: string) {
+      const handle = requireDistrosDoc();
+      const task = wrap(() => completeDelivery(handle, id));
+      // Doorstep handled: the linked household no longer needs a delivery.
+      if (task.householdId && doc().households[task.householdId]) {
+        setNeedsDelivery(store.base, task.householdId, false);
+      }
+      return { ok: true };
+    },
+    async removeDelivery(id: string) {
+      requireAdmin("remove deliveries");
+      const handle = requireDistrosDoc();
+      wrap(() => removeDelivery(handle, id));
       return { ok: true };
     },
 

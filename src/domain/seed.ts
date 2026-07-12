@@ -25,6 +25,8 @@ import { cancelDistro, createDistro } from "./distros.ts";
 import { claimShiftSlot, createShiftSlot } from "./shifts.ts";
 import { setItemPolicy } from "./cooldowns.ts";
 import { partnerSyncByPhone } from "./partners.ts";
+import { recordInventoryCount } from "./inventory.ts";
+import { claimDelivery, createDelivery } from "./deliveries.ts";
 
 const EN = "Inglés / English / 英文";
 const ES = "Español / Spanish / 西班牙语";
@@ -122,6 +124,9 @@ export async function seedDemoData(store: BamStore): Promise<SeedReport> {
   // Out of season mid-summer → intake shows "Not offered right now".
   setItemPolicy(base, "school_supplies", { seasonFrom: "08-01", seasonUntil: "10-31" });
   setItemPolicy(base, "air_conditioner", { disabled: true });
+  // Per-type expiry: urgent items short, furniture long.
+  setItemPolicy(base, "adult_diapers", { expiryDays: 7 });
+  setItemPolicy(base, "queen_mattress", { expiryDays: 60 });
 
   /* Org lists: partners + check-in referral cues --------------------------- */
   base.change((d) => {
@@ -344,6 +349,49 @@ export async function seedDemoData(store: BamStore): Promise<SeedReport> {
     types: ["english_classes"],
     includeGoods: false,
   });
+
+  /* Inventory: a post-distro count — clothing is OUT (shows the in-stock
+   * outreach filter doing its job) --------------------------------------- */
+  recordInventoryCount(
+    base,
+    {
+      date: today,
+      counts: {
+        soap: 14,
+        baby_diapers: 22,
+        adult_diapers: 6,
+        pads: 18,
+        plates: 40,
+        cups: 35,
+        pots_pans: 3,
+        clothing: 0,
+      },
+      notes: "Post-distro count — clothing rack is empty until the next donation run.",
+    },
+    { peerId: store.peerId, name: "seed demo" },
+    now
+  );
+
+  /* Delivery board: one open (needs a driver), one claimed ----------------- */
+  if (distros) {
+    createDelivery(distros, {
+      items: "2 bags of clothing + a walker",
+      householdId: created[6]!.id, // Yolanda — flagged needsDelivery above
+      householdName: "Yolanda P.",
+      phone: created[6]!.phone,
+      address: "214 Rondo Ave, Brooklyn, NY 11237",
+      notes: "3rd floor, buzzer broken — call on arrival.",
+    }, store.peerId, now);
+    const claimed = createDelivery(distros, {
+      items: "Queen mattress (curbside pickup arranged)",
+      householdName: "Beatriz L.",
+      address: "250 Rondo Ave, Brooklyn, NY 11237",
+    }, store.peerId, now);
+    claimDelivery(distros, claimed.id, {
+      peerId: "0d".repeat(32),
+      name: "Diego — van",
+    }, now);
+  }
 
   /* Outbox: a small SMS blast + one email ----------------------------------- */
   const smsTargets = [created[3]!.id, created[9]!.id, created[23]!.id];

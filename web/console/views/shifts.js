@@ -87,10 +87,215 @@
         );
         return;
       }
-      container.append(summary, calRegion, listRegion);
+      container.append(summary, calRegion, listRegion, deliveriesRegion);
       if (isAdmin) container.append(renderCreateCard());
       load();
+      void loadDeliveries();
     });
+
+    // ---- delivery dispatch board --------------------------------------------
+    // Doorstep deliveries as claimable tasks — post one, a volunteer with a
+    // vehicle takes it. Vehicle profiles light up the matches.
+    const deliveriesRegion = h("div", {});
+
+    function vehicleFits() {
+      return ["car", "van", "bike"].includes((profile && profile.vehicle) || "");
+    }
+
+    async function loadDeliveries() {
+      clear(deliveriesRegion);
+      let rows;
+      try {
+        rows = await api.listDeliveries();
+      } catch (_e) {
+        return; // view-denied or unavailable — the board just doesn't render
+      }
+      const card = h("div", { class: "card stack" });
+      deliveriesRegion.append(card);
+      const open = rows.filter((t) => t.status === "Open").length;
+      card.append(
+        h(
+          "div",
+          { class: "row row--between" },
+          h("h2", { class: "card__title", style: { margin: "0" } }, "🚚 Deliveries"),
+          rows.length
+            ? open
+              ? h("span", { class: "badge badge-timeout" }, `${open} need${open === 1 ? "s" : ""} a driver`)
+              : h("span", { class: "badge badge-delivered" }, "all covered ✓")
+            : null
+        ),
+        h(
+          "p",
+          { class: "muted", style: { margin: "0", fontSize: "13px" } },
+          "Doorstep drop-offs for homebound neighbors. Take one if you have wheels — address and details are on the task."
+        )
+      );
+
+      if (!rows.length) {
+        card.append(
+          h(
+            "div",
+            { class: "empty-state" },
+            h("span", { class: "muted" }, isAdmin ? "No delivery tasks — post one below." : "No delivery tasks right now.")
+          )
+        );
+      } else {
+        card.append(h("ul", { class: "list" }, rows.map(deliveryRow)));
+      }
+      if (isAdmin) card.append(renderDeliveryForm());
+    }
+
+    function deliveryRow(t) {
+      const fits = t.status === "Open" && vehicleFits();
+      const statusBadge =
+        t.status === "Open"
+          ? h("span", { class: "badge badge-timeout" }, "NEEDS A DRIVER")
+          : t.status === "Claimed"
+            ? h("span", { class: "badge badge-open" }, `on it: ${t.claimed_by ? t.claimed_by.name : "someone"}`)
+            : h("span", { class: "badge badge-delivered" }, "delivered ✓");
+      const action =
+        t.status === "Open"
+          ? h(
+              "button",
+              {
+                class: "btn btn-primary",
+                type: "button",
+                onclick: async () => {
+                  try {
+                    await api.claimDelivery(t.id);
+                    toast("It's yours — thank you for driving!", "success");
+                    await loadDeliveries();
+                  } catch (err) {
+                    toast((err && err.detail) || "Could not claim it.", "error");
+                  }
+                },
+              },
+              "I'll take it"
+            )
+          : t.status === "Claimed" && t.mine
+            ? h(
+                "span",
+                { class: "row", style: { gap: "6px" } },
+                h(
+                  "button",
+                  {
+                    class: "btn btn-primary",
+                    type: "button",
+                    onclick: async () => {
+                      await api.completeDelivery(t.id);
+                      toast("Marked delivered — the household's delivery flag is cleared.", "success");
+                      await loadDeliveries();
+                    },
+                  },
+                  "Delivered ✓"
+                ),
+                h(
+                  "button",
+                  {
+                    class: "btn btn-ghost",
+                    type: "button",
+                    onclick: async () => {
+                      await api.releaseDelivery(t.id);
+                      toast("Handed back to the board.", "success");
+                      await loadDeliveries();
+                    },
+                  },
+                  "Can't do it"
+                )
+              )
+            : null;
+      return h(
+        "li",
+        {
+          class: "list-item",
+          style: fits
+            ? { alignItems: "flex-start", borderColor: "var(--brand)", borderWidth: "2px" }
+            : { alignItems: "flex-start" },
+        },
+        h(
+          "div",
+          { class: "list-item__body stack", style: { gap: "2px" } },
+          h(
+            "div",
+            { class: "row" },
+            h("span", { class: "list-item__label" }, t.items),
+            fits ? h("span", { class: "badge badge-open" }, "✨ you have wheels") : null
+          ),
+          h(
+            "div",
+            { class: "list-item__meta" },
+            [t.household_name, t.address, t.phone].filter(Boolean).join(" · ") || "details with the coordinator"
+          ),
+          t.notes ? h("div", { class: "list-item__meta" }, t.notes) : null
+        ),
+        h(
+          "span",
+          { class: "row", style: { gap: "6px", flexWrap: "wrap", justifyContent: "flex-end" } },
+          statusBadge,
+          action,
+          isAdmin
+            ? h(
+                "button",
+                {
+                  class: "btn btn-ghost",
+                  type: "button",
+                  title: "Remove this task",
+                  onclick: async () => {
+                    if (!confirm("Remove this delivery task?")) return;
+                    await api.removeDelivery(t.id);
+                    await loadDeliveries();
+                  },
+                },
+                "✕"
+              )
+            : null
+        )
+      );
+    }
+
+    function renderDeliveryForm() {
+      const itemsInput = h("input", { class: "input", type: "text", placeholder: "What's going? e.g. 2 bags clothing + a walker", "aria-label": "Items" });
+      const nameInput = h("input", { class: "input", type: "text", placeholder: "Household name (optional)", "aria-label": "Household name" });
+      const phoneInput = h("input", { class: "input", type: "tel", placeholder: "Phone (optional)", "aria-label": "Phone" });
+      const addressInput = h("input", { class: "input", type: "text", placeholder: "Address", "aria-label": "Address" });
+      const notesInput = h("input", { class: "input", type: "text", placeholder: "Notes — buzzer, floor, timing (optional)", "aria-label": "Notes" });
+      const postBtn = h(
+        "button",
+        {
+          class: "btn btn-primary btn-block",
+          type: "button",
+          onclick: async () => {
+            if (!itemsInput.value.trim()) {
+              toast("Say what's being delivered.", "info");
+              itemsInput.focus();
+              return;
+            }
+            postBtn.disabled = true;
+            try {
+              await api.createDelivery({
+                items: itemsInput.value,
+                household_name: nameInput.value,
+                phone: phoneInput.value,
+                address: addressInput.value,
+                notes: notesInput.value,
+              });
+              toast("Delivery posted — drivers will see it here.", "success");
+              await loadDeliveries();
+            } catch (err) {
+              toast((err && err.detail) || "Could not post it.", "error");
+              postBtn.disabled = false;
+            }
+          },
+        },
+        "Post delivery task"
+      );
+      return h(
+        "details",
+        { class: "advanced" },
+        h("summary", {}, "➕ Post a delivery (admin)"),
+        h("div", { class: "stack", style: { marginTop: "var(--s3)" } }, itemsInput, nameInput, phoneInput, addressInput, notesInput, postBtn)
+      );
+    }
 
     // ---- data ---------------------------------------------------------------
 

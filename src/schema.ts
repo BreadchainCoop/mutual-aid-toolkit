@@ -176,6 +176,40 @@ export interface ItemPolicy {
   seasonUntil?: string;
   /** Hard off-switch: hide from intake entirely (independent of season). */
   disabled?: boolean;
+  /** Days an OPEN request lives before auto-expiring (overrides the catalog
+   * default of 14/30) — urgent items short, furniture long. */
+  expiryDays?: number;
+}
+
+/** A post-distro stock count: what's actually on the shelves. */
+export interface InventoryCount {
+  id: string;
+  date: string; // YYYY-MM-DD (the distro/count date)
+  by: string; // volunteer name or peer prefix
+  /** Counted items, catalog type key → units on hand. */
+  counts: { [typeKey: string]: number };
+  notes?: string;
+  createdAt: string;
+}
+
+/** A doorstep-delivery task on the dispatch board (lives in the distros
+ * doc, next to shift slots — same claim mechanics, same access domain). */
+export interface DeliveryTask {
+  id: string;
+  /** Linked household, when created from a lookup. */
+  householdId?: string;
+  /** Denormalized so the board renders and prints without another lookup. */
+  householdName?: string;
+  phone?: string;
+  address?: string;
+  /** What's being delivered, in plain words ("2 bags clothing + a walker"). */
+  items: string;
+  notes?: string;
+  status: "Open" | "Claimed" | "Delivered";
+  claimedBy?: { peerId: string; name: string; at: string };
+  deliveredAt?: string;
+  createdBy: string; // PeerId hex
+  createdAt: string;
 }
 
 /**
@@ -234,6 +268,11 @@ export interface BamDoc {
   smsOutbox: { [id: string]: OutboxMessage };
   /** Per-item cooldown/seasonal policy, keyed by catalog type key. */
   itemPolicies?: { [typeKey: string]: ItemPolicy };
+  /** Live stock levels: catalog type key → units on hand. Missing key =
+   * untracked (assume available); 0 = tracked and OUT. */
+  inventory?: { [typeKey: string]: { onHand: number; updatedAt: string; updatedBy: string } };
+  /** Post-distro count history, newest useful for trends. */
+  inventoryLog?: { [id: string]: InventoryCount };
 }
 
 /**
@@ -246,6 +285,8 @@ export interface DistrosDoc {
   meta: { org: string; domain: "distros"; createdAt: string };
   distros: { [id: string]: Distro };
   shiftSlots: { [id: string]: ShiftSlot };
+  /** The delivery dispatch board (added later; write paths create the map). */
+  deliveries?: { [id: string]: DeliveryTask };
 }
 
 /**

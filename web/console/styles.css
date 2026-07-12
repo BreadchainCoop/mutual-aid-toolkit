@@ -1085,7 +1085,7 @@ details.advanced[open] > summary::before {
 
 .policy-row {
   display: grid;
-  grid-template-columns: minmax(120px, 1.6fr) 84px 84px 84px 36px 64px;
+  grid-template-columns: minmax(120px, 1.6fr) 84px 84px 84px 84px 36px 64px;
   gap: var(--s2);
   align-items: center;
   padding: 3px 0;
@@ -1118,7 +1118,7 @@ details.advanced[open] > summary::before {
 
 @media (max-width: 640px) {
   .policy-row {
-    grid-template-columns: minmax(90px, 1.2fr) 64px 72px 72px 30px 56px;
+    grid-template-columns: 74px 74px 78px 78px 32px 1fr;
     gap: var(--s1);
   }
 }

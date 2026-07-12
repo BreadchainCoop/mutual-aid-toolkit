@@ -214,6 +214,15 @@
       });
     }
 
+    // In-stock only: skip request types that are tracked in inventory and OUT.
+    const inStockBox = h("input", { type: "checkbox", id: "out-instock", checked: true });
+    const inStockRow = h(
+      "label",
+      { class: "row", for: "out-instock", style: { gap: "var(--s2)", cursor: "pointer" } },
+      inStockBox,
+      h("span", {}, "📦 Only items we have in stock (per the inventory counts)")
+    );
+
     // Rebooking-only: households whose booked distro was cancelled.
     const rebookingBox = h("input", { type: "checkbox", id: "out-rebooking" });
     const rebookingRow = h(
@@ -234,6 +243,7 @@
       excludeAttendedInput.value = "0";
       limitInput.value = "";
       rebookingBox.checked = false;
+      inStockBox.checked = true; // sane default: don't text for empty shelves
       state.interpreterOnly = false;
       state.channel = "sms";
       renderChannelToggle();
@@ -313,6 +323,7 @@
             )
           ),
           rebookingRow,
+          inStockRow,
           // Request types
           h(
             "div",
@@ -567,6 +578,7 @@
       };
       if (state.channel === "email") filters.channel = "email";
       if (rebookingBox.checked) filters.rebooking_only = true;
+      if (inStockBox.checked) filters.in_stock_only = true;
       if (customRequestTypes.size) filters.request_types = [...customRequestTypes];
       const langs = langPick.getSelected();
       if (langs.length) filters.languages = langs;

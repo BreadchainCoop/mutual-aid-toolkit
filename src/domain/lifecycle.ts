@@ -25,6 +25,12 @@ import type { DocHandle } from "@automerge/automerge-repo";
 import type { BamDoc, RequestRow, RequestStatus, SocialServiceRequestRow } from "../schema.ts";
 import { localDate, nowIso } from "../schema.ts";
 import { DEFAULT_EXPIRY_DAYS, expiryDaysFor } from "./catalog.ts";
+
+/** The expiry window for a type: the admin-set per-item policy wins, then
+ * the catalog default (14 days, 30 for pots & pans). */
+function windowDaysFor(doc: BamDoc, type: string): number {
+  return doc.itemPolicies?.[type]?.expiryDays ?? expiryDaysFor(type);
+}
 import { hashPhone } from "./validation.ts";
 
 const DAY_MS = 86_400_000;
@@ -83,17 +89,18 @@ export function expireStale(handle: DocHandle<BamDoc>, now: string = nowIso()): 
       (r) =>
         r.status === "Open" &&
         !bookedHouseholdIds.has(r.householdId) &&
-        nowMs - Date.parse(r.requestOpenedAt) > expiryDaysFor(r.type) * DAY_MS
+        nowMs - Date.parse(r.requestOpenedAt) > windowDaysFor(doc, r.type) * DAY_MS
     )
     .map((r) => r.id);
 
-  // Social service requests always use the 14-day window.
+  // Social services default to the 14-day window, policy-overridable too.
   const timedOutSocialServiceRequestIds = Object.values(doc.socialServiceRequests)
     .filter(
       (r) =>
         r.status === "Open" &&
         !bookedHouseholdIds.has(r.householdId) &&
-        nowMs - Date.parse(r.requestOpenedAt) > DEFAULT_EXPIRY_DAYS * DAY_MS
+        nowMs - Date.parse(r.requestOpenedAt) >
+          (doc.itemPolicies?.[r.type]?.expiryDays ?? DEFAULT_EXPIRY_DAYS) * DAY_MS
     )
     .map((r) => r.id);
 

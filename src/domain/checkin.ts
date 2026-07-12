@@ -10,6 +10,7 @@
 
 import type { DocHandle } from "@automerge/automerge-repo";
 import type { BamDoc, Household, RequestRow, SocialServiceRequestRow } from "../schema.ts";
+import { decrementStock } from "./inventory.ts";
 import { fulfilledCountKey, localDate, nowIso } from "../schema.ts";
 import { applyStatusChange } from "./lifecycle.ts";
 import { normalizePhone } from "./validation.ts";
@@ -143,6 +144,8 @@ export function fulfill(
         if (!h.lastDeliveredByType) h.lastDeliveredByType = {};
         h.lastDeliveredByType[row.type] = onDate;
       }
+      // Tracked inventory walks out the door with the delivery.
+      decrementStock(d, row.type, now, "check-in");
     };
     for (const id of requestIds) deliver(d.requests[id]!);
     for (const id of socialIds) deliver(d.socialServiceRequests[id]!);

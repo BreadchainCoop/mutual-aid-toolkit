@@ -845,7 +845,7 @@
       h(
         "p",
         { class: "muted", style: { margin: "0" } },
-        "“Wait” paces repeat requests: after an item is delivered, the same household waits that many days before their re-request goes back into outreach. First-time requests are never delayed, and the form tells people the rule. A season keeps an item on the form only part of the year; “off” hides it entirely."
+        "“Wait” paces repeat requests after a delivery (first requests are never delayed). “Expires” is how many days an unanswered request stays open before timing out — urgent items short, furniture long. A season keeps an item on the form only part of the year; “off” hides it entirely."
       )
     );
     const listWrap = h("div", {});
@@ -861,6 +861,7 @@
           { class: "policy-row policy-row--head" },
           h("span", {}, "Item"),
           h("span", {}, "Wait (days)"),
+          h("span", {}, "Expires (days)"),
           h("span", {}, "Season starts"),
           h("span", {}, "Season ends"),
           h("span", {}, "Off"),
@@ -876,6 +877,14 @@
             value: p.cooldown_days != null ? String(p.cooldown_days) : "",
             placeholder: "—",
             "aria-label": `${shortItemLabel(t.label, t.key)}: days to wait after a delivery`,
+          });
+          const expiry = h("input", {
+            class: "input",
+            type: "number",
+            min: "1",
+            value: p.expiry_days != null ? String(p.expiry_days) : "",
+            placeholder: "14",
+            "aria-label": `${shortItemLabel(t.label, t.key)}: days before an open request expires`,
           });
           const from = h("input", {
             class: "input",
@@ -912,6 +921,7 @@
                 try {
                   await api.setItemPolicy(t.key, {
                     cooldown_days: cooldown.value.trim() === "" ? null : Number(cooldown.value),
+                    expiry_days: expiry.value.trim() === "" ? null : Number(expiry.value),
                     season_from: from.value.trim() || null,
                     season_until: until.value.trim() || null,
                     disabled: disabled.checked,
@@ -939,6 +949,7 @@
               p.disabled ? h("span", { class: "badge badge-timeout", style: { marginLeft: "6px" } }, "off") : null
             ),
             cooldown,
+            expiry,
             from,
             until,
             h("span", { style: { textAlign: "center" } }, disabled),

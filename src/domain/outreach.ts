@@ -15,6 +15,7 @@ import type { BamDoc, Household, OutboxMessage } from "../schema.ts";
 import { fulfilledCountKey, localDate, newId, nowIso } from "../schema.ts";
 import { LANGUAGES, normalizeType } from "./catalog.ts";
 import { applyStatusChange, addDays } from "./lifecycle.ts";
+import { outOfStockTypes } from "./inventory.ts";
 
 export const DEFAULT_MAX_MESSAGES = 240; // spec 6.2: 240 texts ~ 60 appointments
 export const DEFAULT_REQUEST_FORM_URL = "https://forms.fillout.com/t/ivajQbwoWxus";
@@ -30,6 +31,9 @@ export interface OutreachFilters {
   channel?: "sms" | "email";
   /** Only households whose booked distro was cancelled (needsRebooking). */
   rebookingOnly?: boolean;
+  /** Skip request types that are tracked in inventory and OUT (stock 0) —
+   * never text someone about an item that isn't on the shelf. */
+  inStockOnly?: boolean;
 }
 
 export interface OutreachCandidate {
@@ -81,9 +85,11 @@ export function buildOutreachList(
     : null;
 
   const openByHousehold = new Map<string, { types: Set<string>; oldest: string }>();
+  const outOfStock = filters.inStockOnly ? outOfStockTypes(doc) : null;
   for (const req of Object.values(doc.requests)) {
     if (req.status !== "Open") continue;
     if (req.pacedUntil !== undefined && req.pacedUntil > today) continue; // per-item cooldown
+    if (outOfStock && outOfStock.has(req.type)) continue; // tracked and OUT
     if (typeFilter && !typeFilter.has(req.type)) continue;
     const entry = openByHousehold.get(req.householdId);
     if (!entry) {

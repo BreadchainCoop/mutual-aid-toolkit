@@ -351,6 +351,11 @@
                     `🌐 ${r.unsupported_language} need an interpreter`
                   )
                 : null,
+              r.stock === 0
+                ? h("span", { class: "badge badge-timeout", title: "Inventory says none on the shelf" }, "📦 OUT")
+                : r.stock != null
+                  ? h("span", { class: "badge", title: "Units on hand per the last inventory count" }, `📦 ${r.stock} in stock`)
+                  : null,
               h("span", { class: "badge badge-open mono" }, String(r.open))
             )
           ),

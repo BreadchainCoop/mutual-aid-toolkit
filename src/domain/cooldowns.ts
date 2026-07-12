@@ -69,6 +69,7 @@ export function setItemPolicy(
   typeKey: string,
   patch: {
     cooldownDays?: number | null;
+    expiryDays?: number | null;
     seasonFrom?: string | null;
     seasonUntil?: string | null;
     disabled?: boolean | null;
@@ -87,6 +88,7 @@ export function setItemPolicy(
       else entry[key] = value;
     };
     apply("cooldownDays", patch.cooldownDays);
+    apply("expiryDays", patch.expiryDays);
     apply("seasonFrom", patch.seasonFrom);
     apply("seasonUntil", patch.seasonUntil);
     apply("disabled", patch.disabled);
